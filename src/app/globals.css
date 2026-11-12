@@ -1,0 +1,90 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  direction: rtl;
+  text-align: right;
+  font-size: 16px;
+  line-height: 1.65;
+  background-color: #f8fafc;
+  color: #0f172a;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+}
+
+.print-only {
+  display: none;
+}
+
+/* גלילה נקייה */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* עיצוב ייעודי להדפסה ישירה (window.print) */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-size: 14px !important;
+    line-height: 1.5 !important;
+    overflow: visible !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  /* כאשר חלון תיק פתוח, הדפס אך ורק את דף התיק המלא */
+  body.case-drawer-open .dashboard-main-print-area {
+    display: none !important;
+  }
+
+  body.case-drawer-open .case-drawer-print-wrapper {
+    position: static !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: #ffffff !important;
+  }
+
+  body.case-drawer-open .case-drawer-scroll-body {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+  }
+}
