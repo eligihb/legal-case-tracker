@@ -220,11 +220,12 @@ export default function CaseDrawer({
   const [newMilestoneTitle, setNewMilestoneTitle] = useState('');
   const [newMilestoneUrgency, setNewMilestoneUrgency] =
     useState<TaskUrgency>('גבוהה');
-  const [newMilestonePlannedDays, setNewMilestonePlannedDays] =
-    useState<number>(7);
+  const [newMilestonePlannedDays, setNewMilestonePlannedDays] = useState<
+    number | ''
+  >('');
 
   // הוספת שורת דיווח הפחתה חודשית חדשה
-  const [newRedMonth, setNewRedMonth] = useState('11/2026');
+  const [newRedMonth, setNewRedMonth] = useState('');
   const [newRedAmount, setNewRedAmount] = useState<number>(0);
   const [newRedNotes, setNewRedNotes] = useState('');
 
@@ -368,8 +369,8 @@ export default function CaseDrawer({
     setLogType('תרשומת שיחה');
     setLogContent('');
     setQuickNextActionType(caseItem.next_action_type || 'תגובה');
-    setQuickNextActionDesc(caseItem.next_action_description || '');
-    setQuickNextDueDate(caseItem.next_due_date || '');
+    setQuickNextActionDesc('');
+    setQuickNextDueDate('');
 
     setLoadingLogs(true);
     let initTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1002,13 +1003,18 @@ export default function CaseDrawer({
       setLogContent('');
 
       if (updateNextInOneClick) {
+        const updatedActionDesc =
+          quickNextActionDesc.trim() || nextActionDescription.trim();
+        const updatedDueDate = quickNextDueDate || nextDueDate || '';
         setNextActionType(quickNextActionType);
-        setNextActionDescription(quickNextActionDesc.trim());
-        setNextDueDate(quickNextDueDate || '');
+        setNextActionDescription(updatedActionDesc);
+        setNextDueDate(updatedDueDate);
+        setQuickNextActionDesc('');
+        setQuickNextDueDate('');
         await persistCaseUpdates({
           next_action_type: quickNextActionType,
-          next_action_description: quickNextActionDesc.trim(),
-          next_due_date: quickNextDueDate || null,
+          next_action_description: updatedActionDesc,
+          next_due_date: updatedDueDate || null,
           extensions_count: nextExtCount,
           is_hearing_postponed: nextPostponed,
           postponed_reason: nextReason,
@@ -1088,16 +1094,16 @@ export default function CaseDrawer({
   );
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 case-drawer-print-wrapper">
+    <div className="fixed inset-0 z-50 overflow-hidden bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-0 sm:p-4 case-drawer-print-wrapper">
       <div className="fixed inset-0 no-print" onClick={onClose} />
 
       <div
         dir="rtl"
-        className="relative z-10 w-full max-w-6xl bg-white h-[94vh] rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden case-drawer-print-wrapper"
+        className="relative z-10 w-full max-w-6xl bg-white h-[100dvh] sm:h-[94vh] rounded-none sm:rounded-2xl shadow-2xl border-0 sm:border border-slate-200 flex flex-col overflow-hidden case-drawer-print-wrapper"
       >
         {/* כותרת עליונה מרווחת עם כפתורי העתקה מהירה, הדפסה ישירה וייצוא לאקסל */}
         <div
-          className={`px-6 py-4 text-white flex flex-wrap items-center justify-between gap-3 shrink-0 ${
+          className={`px-3 sm:px-6 py-3 sm:py-4 text-white flex flex-wrap items-center justify-between gap-2 sm:gap-3 shrink-0 ${
             category === 'גבייה'
               ? 'bg-gradient-to-l from-indigo-950 via-blue-900 to-slate-900'
               : category === 'חדל"פ'
@@ -1280,50 +1286,50 @@ export default function CaseDrawer({
         </div>
 
         {/* סרגל 3 הלשוניות הפנימיות (Zero-Scroll Tabs) */}
-        <div className="bg-slate-100 border-b border-slate-200 px-6 py-2.5 flex flex-wrap items-center justify-between gap-2 shrink-0 no-print">
-          <div className="flex items-center gap-2 flex-wrap">
+        <div className="bg-slate-100 border-b border-slate-200 px-3 sm:px-6 py-2 sm:py-2.5 flex flex-wrap items-center justify-between gap-2 shrink-0 no-print">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap w-full sm:w-auto">
             <button
               type="button"
               onClick={() => setActiveTab('overview')}
-              className={`px-4 py-2.5 rounded-xl text-[15px] font-extrabold flex items-center gap-2 transition ${
+              className={`px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-[15px] font-extrabold flex items-center gap-1.5 sm:gap-2 transition ${
                 activeTab === 'overview'
                   ? 'bg-slate-900 text-white shadow-sm'
                   : 'bg-white text-slate-700 hover:bg-slate-200/70 border border-slate-200'
               }`}
             >
-              <Milestone className="w-4 h-4 text-blue-400" />
-              1. מבט על, אבני דרך ושדות ייעודיים ({CATEGORY_LABELS[category]?.shortTitle})
+              <Milestone className="w-4 h-4 text-blue-400 shrink-0" />
+              <span>1. מבט על ושדות התחום</span>
             </button>
 
             <button
               type="button"
               onClick={() => setActiveTab('tasks')}
-              className={`px-4 py-2.5 rounded-xl text-[15px] font-extrabold flex items-center gap-2 transition ${
+              className={`px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-[15px] font-extrabold flex items-center gap-1.5 sm:gap-2 transition ${
                 activeTab === 'tasks'
                   ? 'bg-slate-900 text-white shadow-sm'
                   : 'bg-white text-slate-700 hover:bg-slate-200/70 border border-slate-200'
               }`}
             >
-              <ListChecks className="w-4 h-4 text-emerald-400" />
-              2. משימות וצ&apos;ק-ליסט + דחיפות ומדידת זמנים ({doneCount}/{milestones.length})
+              <ListChecks className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>2. משימות וזמנים ({doneCount}/{milestones.length})</span>
             </button>
 
             <button
               type="button"
               onClick={() => setActiveTab('logs')}
-              className={`px-4 py-2.5 rounded-xl text-[15px] font-extrabold flex items-center gap-2 transition ${
+              className={`px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-[15px] font-extrabold flex items-center gap-1.5 sm:gap-2 transition ${
                 activeTab === 'logs'
                   ? 'bg-slate-900 text-white shadow-sm'
                   : 'bg-white text-slate-700 hover:bg-slate-200/70 border border-slate-200'
               }`}
             >
-              <MessageSquare className="w-4 h-4 text-amber-400" />
-              3. תרשומות שיחה, הערות, תזכורות וארכות ({logs.length})
+              <MessageSquare className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>3. תרשומות וארכות ({logs.length})</span>
             </button>
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-500 font-bold">
+            <span className="text-xs text-slate-500 font-bold hidden sm:inline">
               חתימה אוטומטית: <strong className="text-slate-800">{currentUser.displayName}</strong>
             </span>
             {isAdmin && (
@@ -1340,7 +1346,7 @@ export default function CaseDrawer({
         </div>
 
         {/* גוף החלון לפי הלשונית הפעילה */}
-        <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50 case-drawer-scroll-body">
+        <div className="flex-1 overflow-y-auto p-3 sm:p-6 bg-slate-50/50 case-drawer-scroll-body">
           {/* ================================================================ */}
           {/* לשונית 1: מבט על, פס התקדמות ויזואלי והשדות הייעודיים של סוג התיק */}
           {/* ================================================================ */}
@@ -1436,6 +1442,7 @@ export default function CaseDrawer({
                       type="text"
                       value={debtorName}
                       onChange={(e) => setDebtorName(e.target.value)}
+                      placeholder="הקלד שם חייב / חברה / פרויקט..."
                       className="w-full p-2.5 text-[15px] rounded-xl border border-slate-300 focus:border-blue-600 outline-none font-bold"
                     />
                   </div>
@@ -1449,6 +1456,7 @@ export default function CaseDrawer({
                       type="text"
                       value={idOrHp}
                       onChange={(e) => setIdOrHp(e.target.value)}
+                      placeholder="הקלד ת״ז או ח״פ..."
                       className="w-full p-2.5 text-[15px] rounded-xl border border-slate-300 focus:border-blue-600 outline-none font-mono font-bold"
                     />
                   </div>
@@ -1462,6 +1470,7 @@ export default function CaseDrawer({
                       type="text"
                       value={caseNumber}
                       onChange={(e) => setCaseNumber(e.target.value)}
+                      placeholder="הקלד מספר תיק..."
                       className="w-full p-2.5 text-[15px] rounded-xl border border-slate-300 focus:border-blue-600 outline-none font-mono font-bold"
                     />
                   </div>
@@ -1530,6 +1539,7 @@ export default function CaseDrawer({
                       type="text"
                       value={nextActionDescription}
                       onChange={(e) => setNextActionDescription(e.target.value)}
+                      placeholder="הקלד תיאור לפעולה הבאה או לדיון הקרוב..."
                       className="w-full p-2.5 text-[15px] rounded-xl border border-slate-300 focus:border-blue-600 outline-none font-bold"
                     />
                   </div>
@@ -1762,6 +1772,7 @@ export default function CaseDrawer({
                             onChange={(e) =>
                               setPrincipalAmount(Number(e.target.value) || 0)
                             }
+                            placeholder="0"
                             className="w-full p-2 text-[15px] rounded-lg border border-slate-300 font-bold"
                           />
                         </div>
@@ -1775,6 +1786,7 @@ export default function CaseDrawer({
                             onChange={(e) =>
                               setInterestAmount(Number(e.target.value) || 0)
                             }
+                            placeholder="0"
                             className="w-full p-2 text-[15px] rounded-lg border border-slate-300 font-bold"
                           />
                         </div>
@@ -1788,6 +1800,7 @@ export default function CaseDrawer({
                             onChange={(e) =>
                               setExpensesAmount(Number(e.target.value) || 0)
                             }
+                            placeholder="0"
                             className="w-full p-2 text-[15px] rounded-lg border border-slate-300 font-bold"
                           />
                         </div>
@@ -1801,6 +1814,7 @@ export default function CaseDrawer({
                             onChange={(e) =>
                               setLegalFeeAmount(Number(e.target.value) || 0)
                             }
+                            placeholder="0"
                             className="w-full p-2 text-[15px] rounded-lg border border-blue-400 bg-blue-50/40 font-extrabold text-blue-900"
                           />
                         </div>
@@ -2060,6 +2074,7 @@ export default function CaseDrawer({
                               onChange={(e) =>
                                 setExecutionProceedingsNotes(e.target.value)
                               }
+                              placeholder="הקלד מעקב בקשות, עיקולים, תגובות והחלטות רשם ההוצל״פ..."
                               className="w-full p-2 text-sm rounded-lg border border-slate-300"
                             />
                           </div>
@@ -2558,6 +2573,7 @@ export default function CaseDrawer({
                         type="text"
                         value={housingProjectName}
                         onChange={(e) => setHousingProjectName(e.target.value)}
+                        placeholder="הקלד שם פרויקט / מתחם..."
                         className="w-full p-2 text-sm rounded-lg border border-slate-300 font-bold"
                       />
                     </div>
@@ -2585,6 +2601,7 @@ export default function CaseDrawer({
                         type="text"
                         value={surveyorName}
                         onChange={(e) => setSurveyorName(e.target.value)}
+                        placeholder="הקלד שם ופרטי מודד..."
                         className="w-full p-2 text-sm rounded-lg border border-slate-300 font-bold"
                       />
                     </div>
@@ -2776,6 +2793,7 @@ export default function CaseDrawer({
                     rows={2}
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
+                    placeholder="הקלד הערות ליבה ותקציר התיק..."
                     className="w-full p-2.5 text-[15px] rounded-xl border border-slate-300 focus:border-blue-600 outline-none"
                   />
                 </div>
@@ -2868,8 +2886,11 @@ export default function CaseDrawer({
                       min={1}
                       value={newMilestonePlannedDays}
                       onChange={(e) =>
-                        setNewMilestonePlannedDays(Number(e.target.value) || 1)
+                        setNewMilestonePlannedDays(
+                          e.target.value ? Number(e.target.value) : ''
+                        )
                       }
+                      placeholder="למשל: 7"
                       className="w-full p-2.5 text-[15px] rounded-xl border border-slate-300 font-bold"
                     />
                   </div>

@@ -39,7 +39,7 @@ export default function UsersManagementModal({
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [role, setRole] = useState<'admin' | 'user'>('user');
-  const [password, setPassword] = useState('1111');
+  const [password, setPassword] = useState('');
   const [title, setTitle] = useState('');
   const [active, setActive] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -68,8 +68,8 @@ export default function UsersManagementModal({
     setUsername('');
     setDisplayName('');
     setRole('user');
-    setPassword('1111');
-    setTitle('עורך דין / צוות משרד');
+    setPassword('');
+    setTitle('');
     setActive(true);
   };
 

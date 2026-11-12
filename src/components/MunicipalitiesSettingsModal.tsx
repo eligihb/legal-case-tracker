@@ -73,7 +73,7 @@ export default function MunicipalitiesSettingsModal({
     setSelectedId(null);
     setMunicipalityName('');
     setFeeMethod('אחוזים');
-    setFeeRateValue(15);
+    setFeeRateValue(0);
     setFeeTariffDescription('');
     setInterestRules('');
     setStandingInstructions('');

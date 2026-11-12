@@ -52,9 +52,7 @@ export default function NewCaseModal({
   const [caseNumber, setCaseNumber] = useState('');
   const [gushHelka, setGushHelka] = useState('');
   const [category, setCategory] = useState<CaseCategory>(defaultCategory);
-  const [currentStage, setCurrentStage] = useState(
-    'לפני תביעה - בדיקות מקדמיות'
-  );
+  const [currentStage, setCurrentStage] = useState('');
   const [municipality, setMunicipality] = useState('');
   const [tags, setTags] = useState<CaseTag[]>([]);
   const [status, setStatus] = useState<CaseStatus>('לפני תביעה');
@@ -66,7 +64,7 @@ export default function NewCaseModal({
   const [nextDueDate, setNextDueDate] = useState('');
 
   // 1. שדות תיקי רשויות
-  const [debtYears, setDebtYears] = useState('2021-2025');
+  const [debtYears, setDebtYears] = useState('');
   const [principalAmount, setPrincipalAmount] = useState<number>(0);
   const [interestAmount, setInterestAmount] = useState<number>(0);
   const [expensesAmount, setExpensesAmount] = useState<number>(0);
@@ -102,21 +100,19 @@ export default function NewCaseModal({
   useEffect(() => {
     if (isOpen) {
       setCategory(defaultCategory);
+      setCurrentStage('');
+      setDebtYears('');
       if (defaultCategory === 'גבייה') {
         setStatus('לפני תביעה');
-        setCurrentStage('לפני תביעה - בדיקות מקדמיות');
         setNextActionType('פתיחת תביעה בהוצל"פ');
       } else if (defaultCategory === 'חדל"פ') {
         setStatus('פעיל');
-        setCurrentStage('מינוי נאמן והגשת תביעת חוב');
         setNextActionType('תביעת חוב');
       } else if (defaultCategory === 'חברות') {
         setStatus('פעיל');
-        setCurrentStage('הפקדת התחייבות עצמית ואיתור נכסים');
         setNextActionType('דו"ח עדכון נאמן');
       } else {
         setStatus('פעיל');
-        setCurrentStage('אישור מפרקים ובדיקת תצ"ר / העברת זכויות');
         setNextActionType('העברת זכויות והנפקת אישור');
       }
     }
@@ -612,6 +608,15 @@ export default function NewCaseModal({
                 type="text"
                 value={currentStage}
                 onChange={(e) => setCurrentStage(e.target.value)}
+                placeholder={
+                  category === 'גבייה'
+                    ? 'למשל: לפני תביעה - בדיקות מקדמיות'
+                    : category === 'חדל"פ'
+                    ? 'למשל: מינוי נאמן והגשת תביעת חוב'
+                    : category === 'חברות'
+                    ? 'למשל: הפקדת התחייבות עצמית ואיתור נכסים'
+                    : 'למשל: אישור מפרקים ובדיקת תצ״ר'
+                }
                 className="w-full p-2.5 text-sm rounded-lg border border-slate-300 focus:border-blue-600 outline-none"
               />
             </div>
@@ -691,6 +696,7 @@ export default function NewCaseModal({
                     onChange={(e) =>
                       setPrincipalAmount(Number(e.target.value) || 0)
                     }
+                    placeholder="0"
                     className="w-full p-2 text-sm rounded border border-slate-300 bg-white font-bold"
                   />
                 </div>
@@ -704,6 +710,7 @@ export default function NewCaseModal({
                     onChange={(e) =>
                       setInterestAmount(Number(e.target.value) || 0)
                     }
+                    placeholder="0"
                     className="w-full p-2 text-sm rounded border border-slate-300 bg-white"
                   />
                 </div>
@@ -717,6 +724,7 @@ export default function NewCaseModal({
                     onChange={(e) =>
                       setExpensesAmount(Number(e.target.value) || 0)
                     }
+                    placeholder="0"
                     className="w-full p-2 text-sm rounded border border-slate-300 bg-white"
                   />
                 </div>
@@ -730,6 +738,7 @@ export default function NewCaseModal({
                     onChange={(e) =>
                       setLegalFeeAmount(Number(e.target.value) || 0)
                     }
+                    placeholder="0"
                     className="w-full p-2 text-sm rounded border border-slate-300 bg-white font-bold text-blue-700"
                   />
                 </div>

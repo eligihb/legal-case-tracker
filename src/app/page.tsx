@@ -706,34 +706,34 @@ export default function DashboardPage() {
         {/* ==================================================================== */}
         {/* 1. ארבע לשוניות ראשיות פעילות (מסננות באמת את כל המסך לתחום הנבחר!) */}
         {/* ==================================================================== */}
-        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 no-print">
+        <section className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3.5 no-print">
           {/* 1. תיקי רשויות (גבייה והוצל"פ) — כחול/אינדיגו */}
           <button
             type="button"
             onClick={() => handleSelectCategoryTab('גבייה')}
-            className={`p-4 rounded-2xl border-2 text-right transition flex items-center justify-between ${
+            className={`p-3 sm:p-4 rounded-2xl border-2 text-right transition flex items-center justify-between gap-2 ${
               activeCategory === 'גבייה'
                 ? 'bg-gradient-to-l from-blue-700 to-indigo-700 text-white border-indigo-900 ring-4 ring-blue-200 shadow-lg'
                 : 'bg-white text-blue-950 border-blue-300 hover:bg-blue-50/60'
             }`}
           >
             <div className="min-w-0">
-              <div className="flex items-center gap-2 text-base font-extrabold">
-                <Landmark className="w-5 h-5 shrink-0" />
-                <span>1. תיקי רשויות (גבייה והוצל&quot;פ)</span>
+              <div className="flex items-center gap-1.5 sm:gap-2 text-sm sm:text-base font-extrabold">
+                <Landmark className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
+                <span className="truncate">1. רשויות (גבייה)</span>
               </div>
               <div
-                className={`text-xs mt-1 truncate ${
+                className={`text-[11px] sm:text-xs mt-0.5 sm:mt-1 truncate ${
                   activeCategory === 'גבייה'
                     ? 'text-blue-100'
                     : 'text-slate-600'
                 }`}
               >
-                שכ&quot;ט רשות, גח&quot;לת, משכון, +30 יום, הפחתות ומחיקות
+                שכ&quot;ט, גח&quot;לת, +30 יום והסדרים
               </div>
             </div>
             <span
-              className={`text-xl font-extrabold px-3.5 py-1 rounded-xl shrink-0 ${
+              className={`text-base sm:text-xl font-extrabold px-2.5 sm:px-3.5 py-0.5 sm:py-1 rounded-xl shrink-0 ${
                 activeCategory === 'גבייה'
                   ? 'bg-white/20 text-white'
                   : 'bg-blue-100 text-blue-900'
@@ -747,29 +747,29 @@ export default function DashboardPage() {
           <button
             type="button"
             onClick={() => handleSelectCategoryTab('חדל"פ')}
-            className={`p-4 rounded-2xl border-2 text-right transition flex items-center justify-between ${
+            className={`p-3 sm:p-4 rounded-2xl border-2 text-right transition flex items-center justify-between gap-2 ${
               activeCategory === 'חדל"פ'
                 ? 'bg-gradient-to-l from-purple-700 to-fuchsia-700 text-white border-purple-900 ring-4 ring-purple-200 shadow-lg'
                 : 'bg-white text-purple-950 border-purple-300 hover:bg-purple-50/60'
             }`}
           >
             <div className="min-w-0">
-              <div className="flex items-center gap-2 text-base font-extrabold">
-                <Gavel className="w-5 h-5 shrink-0" />
-                <span>2. תיקי חדל&quot;פ (ייצוג נושה / פירוק)</span>
+              <div className="flex items-center gap-1.5 sm:gap-2 text-sm sm:text-base font-extrabold">
+                <Gavel className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
+                <span className="truncate">2. תיקי חדל&quot;פ</span>
               </div>
               <div
-                className={`text-xs mt-1 truncate ${
+                className={`text-[11px] sm:text-xs mt-0.5 sm:mt-1 truncate ${
                   activeCategory === 'חדל"פ'
                     ? 'text-purple-100'
                     : 'text-slate-600'
                 }`}
               >
-                נושה מהותי, יחיד/חברה, תביעות חוב וחובות חדשים
+                נושה מהותי, תביעות חוב וחובות חדשים
               </div>
             </div>
             <span
-              className={`text-xl font-extrabold px-3.5 py-1 rounded-xl shrink-0 ${
+              className={`text-base sm:text-xl font-extrabold px-2.5 sm:px-3.5 py-0.5 sm:py-1 rounded-xl shrink-0 ${
                 activeCategory === 'חדל"פ'
                   ? 'bg-white/20 text-white'
                   : 'bg-purple-100 text-purple-900'
@@ -783,29 +783,29 @@ export default function DashboardPage() {
           <button
             type="button"
             onClick={() => handleSelectCategoryTab('חברות')}
-            className={`p-4 rounded-2xl border-2 text-right transition flex items-center justify-between ${
+            className={`p-3 sm:p-4 rounded-2xl border-2 text-right transition flex items-center justify-between gap-2 ${
               activeCategory === 'חברות'
                 ? 'bg-gradient-to-l from-emerald-700 to-teal-700 text-white border-emerald-900 ring-4 ring-emerald-200 shadow-lg'
                 : 'bg-white text-emerald-950 border-emerald-300 hover:bg-emerald-50/60'
             }`}
           >
             <div className="min-w-0">
-              <div className="flex items-center gap-2 text-base font-extrabold">
-                <Briefcase className="w-5 h-5 shrink-0" />
-                <span>3. תיקי חברות (נאמן / מפרק)</span>
+              <div className="flex items-center gap-1.5 sm:gap-2 text-sm sm:text-base font-extrabold">
+                <Briefcase className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
+                <span className="truncate">3. תיקי חברות</span>
               </div>
               <div
-                className={`text-xs mt-1 truncate ${
+                className={`text-[11px] sm:text-xs mt-0.5 sm:mt-1 truncate ${
                   activeCategory === 'חברות'
                     ? 'text-emerald-100'
                     : 'text-slate-600'
                 }`}
               >
-                התחייבות 100א׳ ₪, חקירות וצו הבאה, דו&quot;ח נאמן ושיקום/פירוק
+                התחייבות 100א׳, חקירות ודו&quot;ח נאמן
               </div>
             </div>
             <span
-              className={`text-xl font-extrabold px-3.5 py-1 rounded-xl shrink-0 ${
+              className={`text-base sm:text-xl font-extrabold px-2.5 sm:px-3.5 py-0.5 sm:py-1 rounded-xl shrink-0 ${
                 activeCategory === 'חברות'
                   ? 'bg-white/20 text-white'
                   : 'bg-emerald-100 text-emerald-900'
@@ -819,29 +819,29 @@ export default function DashboardPage() {
           <button
             type="button"
             onClick={() => handleSelectCategoryTab('חברה משכנת')}
-            className={`p-4 rounded-2xl border-2 text-right transition flex items-center justify-between ${
+            className={`p-3 sm:p-4 rounded-2xl border-2 text-right transition flex items-center justify-between gap-2 ${
               activeCategory === 'חברה משכנת'
                 ? 'bg-gradient-to-l from-amber-600 to-orange-600 text-white border-amber-800 ring-4 ring-amber-200 shadow-lg'
                 : 'bg-white text-amber-950 border-amber-300 hover:bg-amber-50/60'
             }`}
           >
             <div className="min-w-0">
-              <div className="flex items-center gap-2 text-base font-extrabold">
-                <Home className="w-5 h-5 shrink-0" />
-                <span>4. חברה משכנת (רישום וזכויות)</span>
+              <div className="flex items-center gap-1.5 sm:gap-2 text-sm sm:text-base font-extrabold">
+                <Home className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
+                <span className="truncate">4. חברה משכנת</span>
               </div>
               <div
-                className={`text-xs mt-1 truncate ${
+                className={`text-[11px] sm:text-xs mt-0.5 sm:mt-1 truncate ${
                   activeCategory === 'חברה משכנת'
                     ? 'text-amber-100'
                     : 'text-slate-600'
                 }`}
               >
-                אישור מפרקים, תצ&quot;רים וחניות, בית משותף, חשבוניות והעברת זכויות
+                תצ&quot;רים, בית משותף והעברת זכויות
               </div>
             </div>
             <span
-              className={`text-xl font-extrabold px-3.5 py-1 rounded-xl shrink-0 ${
+              className={`text-base sm:text-xl font-extrabold px-2.5 sm:px-3.5 py-0.5 sm:py-1 rounded-xl shrink-0 ${
                 activeCategory === 'חברה משכנת'
                   ? 'bg-white/20 text-white'
                   : 'bg-amber-100 text-amber-900'
@@ -1191,8 +1191,156 @@ export default function DashboardPage() {
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-right border-collapse">
+            <>
+              {/* תצוגת כרטיסים מותאמת ונוחה למובייל (ללא צורך בגלילה אופקית) */}
+              <div className="md:hidden divide-y divide-slate-200">
+                {filteredCases.map((c) => {
+                  const countdown = getDueCountdown(c.next_due_date);
+                  const totalDebt = calculateTotalDebt(c);
+                  const d30 = isDeliveryOver30DaysAlert(c);
+                  const postponed = isPostponedHearingCase(c);
+
+                  return (
+                    <div
+                      key={c.id}
+                      onClick={() => setSelectedCase(c)}
+                      className={`p-4 space-y-2.5 cursor-pointer transition ${
+                        (countdown.urgency === 'overdue' && c.status !== 'סגור') ||
+                        d30.isAlert
+                          ? 'bg-red-50/40 active:bg-red-50'
+                          : 'bg-white active:bg-blue-50/40'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-extrabold text-slate-900 text-base">
+                              {c.debtor_name}
+                            </span>
+                            <CopyButton
+                              value={c.debtor_name}
+                              label="העתק שם חייב"
+                            />
+                          </div>
+                          <div className="flex items-center gap-2 flex-wrap mt-1 text-xs text-slate-600 font-mono">
+                            {c.id_or_hp && (
+                              <span className="inline-flex items-center gap-1">
+                                ת&quot;ז/ח&quot;פ: {c.id_or_hp}
+                                <CopyButton
+                                  value={c.id_or_hp}
+                                  label="העתק ת״ז/ח״פ"
+                                />
+                              </span>
+                            )}
+                            {c.case_number && (
+                              <span className="inline-flex items-center gap-1 font-bold text-slate-800">
+                                • תיק: {c.case_number}
+                                <CopyButton
+                                  value={c.case_number}
+                                  label="העתק מספר תיק"
+                                />
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <span className="px-2.5 py-0.5 rounded-lg text-xs font-extrabold bg-slate-100 text-slate-800 border border-slate-300 shrink-0">
+                          {c.status}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                        <span className="font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded">
+                          שלב: {c.current_stage || c.status}
+                        </span>
+                        {postponed && (
+                          <span className="px-2 py-0.5 rounded bg-rose-100 text-rose-900 border border-rose-300 font-extrabold">
+                            נדחה ({c.extensions_count || 1})
+                          </span>
+                        )}
+                        {c.category === 'גבייה' && c.municipality && (
+                          <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-900 border border-blue-200 font-bold">
+                            {c.municipality}
+                          </span>
+                        )}
+                        {c.category === 'גבייה' && totalDebt > 0 && (
+                          <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-900 border border-emerald-200 font-extrabold">
+                            {formatCurrencyILS(totalDebt)}
+                          </span>
+                        )}
+                        {c.category === 'חדל"פ' && c.is_material_creditor && (
+                          <span className="px-2 py-0.5 rounded-full bg-purple-700 text-white font-extrabold">
+                            ★ נושה מהותי
+                          </span>
+                        )}
+                      </div>
+
+                      {d30.isAlert && (
+                        <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-600 text-white text-xs font-extrabold">
+                          <AlertTriangle className="w-3.5 h-3.5" />
+                          חלפו 30 יום מאישור מסירה — לפתוח הוצל&quot;פ!
+                        </div>
+                      )}
+
+                      <div className="text-sm font-bold text-slate-900 bg-slate-50 p-2.5 rounded-xl border border-slate-200/80">
+                        <span className="inline-block ml-1.5 px-2 py-0.5 rounded bg-indigo-50 text-indigo-900 border border-indigo-200 text-xs font-extrabold">
+                          {c.next_action_type}
+                        </span>
+                        {c.next_action_description || 'ללא פירוט'}
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2 pt-1">
+                        <div>
+                          {c.next_due_date ? (
+                            <span
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-extrabold ${
+                                countdown.urgency === 'overdue'
+                                  ? 'bg-red-100 text-red-900 border border-red-300'
+                                  : countdown.urgency === 'today'
+                                  ? 'bg-amber-100 text-amber-950 border border-amber-300'
+                                  : 'bg-blue-50 text-blue-900 border border-blue-200'
+                              }`}
+                            >
+                              <Clock className="w-3.5 h-3.5" />
+                              {countdown.label} ({formatDateHe(c.next_due_date)})
+                            </span>
+                          ) : (
+                            <span className="text-xs text-slate-400">ללא מועד יעד</span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          {c.next_due_date && (
+                            <button
+                              type="button"
+                              onClick={(e) => handleMarkActionDone(e, c)}
+                              className="p-2 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200"
+                              title="סמן כבוצע"
+                            >
+                              <CheckCircle2 className="w-4 h-4" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedCase(c);
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-slate-900 text-white font-extrabold text-xs inline-flex items-center gap-1"
+                          >
+                            פתח תיק
+                            <ChevronLeft className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* תצוגת טבלה מלאה למסכי מחשב וטאבלט */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-right border-collapse">
                 <thead>
                   <tr className="border-b-2 border-slate-200 bg-slate-100/90 text-[15px] font-extrabold text-slate-800">
                     {/* עמודה 1: שם חייב/תיק + ת"ז/ח"פ + סינון עמודה */}
@@ -1593,7 +1741,8 @@ export default function DashboardPage() {
                   })}
                 </tbody>
               </table>
-            </div>
+              </div>
+            </>
           )}
         </section>
       </main>

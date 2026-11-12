@@ -22,6 +22,34 @@ body {
   display: none;
 }
 
+/* טקסט הנחיה (Placeholder) באפור בהיר וחלש בכל שדות הרישום כדי למנוע בלבול עם טקסט שנכתב בפועל */
+input::placeholder,
+textarea::placeholder {
+  color: #94a3b8 !important;
+  font-weight: 400 !important;
+  opacity: 0.65 !important;
+}
+
+input:focus::placeholder,
+textarea:focus::placeholder {
+  color: #cbd5e1 !important;
+  opacity: 0.55 !important;
+}
+
+/* התאמה מלאה למובייל — מניעת גלילה אופקית ומניעת זום אוטומטי בעת לחיצה על שדה כתיבה */
+@media (max-width: 767px) {
+  html,
+  body {
+    overflow-x: hidden;
+  }
+
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
 /* גלילה נקייה */
 ::-webkit-scrollbar {
   width: 8px;
