@@ -70,6 +70,7 @@ import ExcelExportModal, {
 } from '@/components/ExcelExportModal';
 import UsersManagementModal from '@/components/UsersManagementModal';
 import CopyButton from '@/components/CopyButton';
+import { APP_VERSION, APP_UPDATED_AT } from '@/lib/version';
 
 type KpiCardType =
   | 'all'
@@ -585,6 +586,12 @@ export default function DashboardPage() {
                 <h1 className="text-lg sm:text-xl font-extrabold tracking-tight">
                   מערכת ניהול תיקים משפטיים — רשויות, חדל&quot;פ, חברות וחברה משכנת
                 </h1>
+                <span
+                  title={`עודכן לאחרונה: ${APP_UPDATED_AT}`}
+                  className="text-xs px-2.5 py-0.5 rounded-full font-extrabold font-mono bg-amber-400/20 text-amber-300 border border-amber-400/40"
+                >
+                  גרסה {APP_VERSION}
+                </span>
                 <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-400/30">
                   {localMode
                     ? 'שמירה מיידית ב-LocalStorage ✓'

@@ -18,6 +18,7 @@ import {
 } from '@/lib/dataService';
 import { INITIAL_SYSTEM_USERS } from '@/lib/sampleData';
 import { SystemUserAccount } from '@/types/database';
+import { APP_VERSION, APP_UPDATED_AT } from '@/lib/version';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -87,9 +88,17 @@ export default function LoginPage() {
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-blue-600/20 border border-blue-400/30 text-blue-400 mb-3">
             <Scale className="w-7 h-7" />
           </div>
-          <h1 className="text-2xl font-extrabold tracking-tight">
-            מערכת ניהול תיקים משפטיים — 4 תחומי המשרד
-          </h1>
+          <div className="flex items-center justify-center gap-2 flex-wrap">
+            <h1 className="text-2xl font-extrabold tracking-tight">
+              מערכת ניהול תיקים משפטיים — 4 תחומי המשרד
+            </h1>
+            <span
+              title={`עודכן לאחרונה: ${APP_UPDATED_AT}`}
+              className="text-xs px-2.5 py-0.5 rounded-full font-extrabold font-mono bg-amber-400/20 text-amber-300 border border-amber-400/40"
+            >
+              גרסה {APP_VERSION}
+            </span>
+          </div>
           <p className="text-sm text-slate-300 mt-1">
             הפרדת הרשאות מלאה (`admin` מול `user`) וחתימה אוטומטית בשם ותאריך/שעה על כל פעולה
           </p>
