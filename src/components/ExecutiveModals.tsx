@@ -3,6 +3,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
+  ArrowRight,
   BarChart3,
   CalendarClock,
   Check,
@@ -16,8 +17,10 @@ import {
   Filter,
   Flame,
   Gavel,
+  Home,
   Landmark,
   Layers,
+  Lock,
   MapPin,
   Printer,
   RefreshCw,
@@ -25,8 +28,10 @@ import {
   Settings,
   ShieldCheck,
   Truck,
+  Unlock,
   Upload,
   Users,
+  Wallet,
   X,
 } from 'lucide-react';
 import {
@@ -39,6 +44,7 @@ import {
   MunicipalitySetting,
   SystemUserAccount,
   UserSession,
+  WorkerPermissionsConfig,
 } from '@/types/database';
 import {
   calculateTotalDebt,
@@ -52,19 +58,24 @@ import {
   downloadFullSystemBackupJson,
   loadSampleDataSafeMerge,
   restoreFromBackupSafeMerge,
+  saveWorkerPermissions,
+  toggleCaseFeePaid,
   updateCaseItem,
+  verifyAdminPassword,
 } from '@/lib/dataService';
 import { quickExportFilteredCasesToXlsx } from './ExcelExportModal';
 import CopyButton from './CopyButton';
 import { DrawerTab } from './CaseDrawer';
 
 export type ExecutiveKpiType =
+  | 'overall_progress'
   | 'upcoming_hearings'
   | 'postponed_hearings'
   | 'urgent_tasks'
   | 'reminders_week'
   | 'court_submissions'
-  | 'delayed_cases';
+  | 'delayed_cases'
+  | 'legal_fees';
 
 export type WorkflowStageBucket =
   | 'התראה'
@@ -154,6 +165,7 @@ interface KpiDetailsModalProps {
   onSelectCase: (caseItem: CaseItem, tab?: DrawerTab) => void;
   onApplyTableFilter: (kpiType: ExecutiveKpiType) => void;
   onPrintList?: (list: CaseItem[], title: string) => void;
+  onCasesUpdated?: (updatedCases: CaseItem[]) => void;
 }
 
 export function KpiDetailsModal({
@@ -166,6 +178,7 @@ export function KpiDetailsModal({
   onSelectCase,
   onApplyTableFilter,
   onPrintList,
+  onCasesUpdated,
 }: KpiDetailsModalProps) {
   const [copiedAll, setCopiedAll] = useState(false);
 
@@ -209,8 +222,32 @@ export function KpiDetailsModal({
       <div
         dir="rtl"
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-4xl bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col max-h-[86dvh] overflow-hidden"
+        className="w-full max-w-4xl bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col max-h-[88dvh] overflow-hidden"
       >
+        {/* שורת ניווט עליונה: מסך הבית > שם החלון + חזרה למסך קודם */}
+        <div className="px-4 py-2 bg-slate-800 text-slate-200 border-b border-slate-700 flex items-center justify-between text-xs font-bold">
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={onClose}
+              className="hover:text-white inline-flex items-center gap-1 text-sky-300 font-extrabold"
+            >
+              <Home className="w-3.5 h-3.5" />
+              <span>מסך הבית</span>
+            </button>
+            <span className="text-slate-500">&gt;</span>
+            <span className="text-white font-extrabold">{title}</span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white font-extrabold inline-flex items-center gap-1 transition"
+          >
+            <ArrowRight className="w-3.5 h-3.5" />
+            <span>חזרה למסך קודם</span>
+          </button>
+        </div>
+
         <div className="px-5 py-4 bg-[#0F172A] text-white flex flex-wrap items-center justify-between gap-3 shrink-0">
           <div>
             <div className="flex items-center gap-2.5">
@@ -285,6 +322,10 @@ export function KpiDetailsModal({
           ) : (
             casesList.map((c) => {
               const cd = getDueCountdown(c.next_due_date);
+              const feeTotal = Number(c.legal_fee_amount) || 4500;
+              const isPaid = Boolean(c.legal_fee_paid);
+              const prepDays = Number(c.prep_days_needed) || 7;
+
               return (
                 <div
                   key={c.id}
@@ -316,15 +357,48 @@ export function KpiDetailsModal({
                       </span>
                     </div>
 
-                    <div className="text-sm text-slate-700 font-medium">
-                      <strong className="text-slate-900">
-                        [{c.next_action_type}]
-                      </strong>{' '}
-                      {c.next_action_description || c.notes || 'ללא פירוט'}
+                    <div className="text-sm text-slate-700 font-medium flex flex-wrap items-center gap-2">
+                      <span>
+                        <strong className="text-slate-900">
+                          [{c.next_action_type}]
+                        </strong>{' '}
+                        {c.next_action_description || c.notes || 'ללא פירוט'}
+                      </span>
+
+                      {kpiType === 'court_submissions' && (
+                        <span className="px-2 py-0.5 rounded bg-purple-100 text-purple-900 border border-purple-300 text-xs font-extrabold">
+                          זמן היערכות מומלץ: {prepDays} ימים מראש
+                        </span>
+                      )}
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                    {kpiType === 'legal_fees' && (
+                      <div
+                        className="flex items-center gap-2"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <span className="text-sm font-extrabold text-slate-900">
+                          שכ&quot;ט: {formatCurrencyILS(feeTotal)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const updated = await toggleCaseFeePaid(c.id);
+                            if (onCasesUpdated) onCasesUpdated(updated);
+                          }}
+                          className={`px-3 py-1 rounded-lg text-xs font-extrabold border transition ${
+                            isPaid
+                              ? 'bg-emerald-600 text-white border-emerald-700'
+                              : 'bg-amber-100 text-amber-950 border-amber-300 hover:bg-amber-200'
+                          }`}
+                        >
+                          {isPaid ? 'שולם ✓' : 'לא שולם (לחץ לסימון שולם)'}
+                        </button>
+                      </div>
+                    )}
+
                     {c.next_due_date && (
                       <span
                         className={`px-2.5 py-1 rounded-full text-xs font-extrabold inline-flex items-center gap-1 ${
@@ -753,6 +827,32 @@ export function ReportsAndChartsModal({
         onClick={(e) => e.stopPropagation()}
         className="w-full max-w-[1440px] bg-white rounded-2xl shadow-2xl border border-slate-300 flex flex-col h-[92dvh] overflow-hidden"
       >
+        {/* שורת ניווט עליונה: מסך הבית > דוחות ותרשימים + חזרה למסך קודם */}
+        <div className="px-4 py-2 bg-slate-800 text-slate-200 border-b border-slate-700 flex items-center justify-between text-xs font-bold shrink-0">
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={onClose}
+              className="hover:text-white inline-flex items-center gap-1 text-sky-300 font-extrabold"
+            >
+              <Home className="w-3.5 h-3.5" />
+              <span>מסך הבית</span>
+            </button>
+            <span className="text-slate-500">&gt;</span>
+            <span className="text-white font-extrabold">
+              דוחות ותרשימים (Smart BI Dashboard)
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white font-extrabold inline-flex items-center gap-1 transition"
+          >
+            <ArrowRight className="w-3.5 h-3.5" />
+            <span>חזרה למסך קודם</span>
+          </button>
+        </div>
+
         {/* Header */}
         <div className="px-5 py-3.5 bg-[#0F172A] text-white flex flex-wrap items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-3">
@@ -1450,13 +1550,16 @@ export function ReportsAndChartsModal({
 }
 
 // ============================================================================
-// חלון הגדרות מאוחד (Executive Settings Modal):
-// מאגד הרשאות/סיסמת עריכה, גיבוי מלא (JSON), שחזור במיזוג בטוח, ייבוא ונתוני דוגמה
+// מסך תפעול והרשאות למנהל (Admin Operations & Permissions Panel - v7.0):
+// מוגן בסיסמת מנהל + מתגי הפעלה/נעילה (Toggle Switches) לקביעת מה פתוח ומה נעול לעובד רגיל
+// + גיבוי מלא (JSON) ושחזור במיזוג בטוח (Non-Destructive)
 // ============================================================================
 interface ExecutiveSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentUser: UserSession;
+  workerPermissions: WorkerPermissionsConfig;
+  onWorkerPermissionsChange: (next: WorkerPermissionsConfig) => void;
   onToggleRoleQuick: () => void;
   onOpenUsersModal: () => void;
   onOpenMuniModal: () => void;
@@ -1468,10 +1571,44 @@ interface ExecutiveSettingsModalProps {
   }) => void;
 }
 
+const PERMISSION_ITEMS: {
+  key: keyof WorkerPermissionsConfig;
+  title: string;
+  description: string;
+}[] = [
+  {
+    key: 'allowCustomFields',
+    title: 'הוספת שדות מותאמים ותזכורות',
+    description: 'מאפשר לעובד רגיל ליצור ולערוך שדות מעקב ותזכורות מותאמים בתיקים',
+  },
+  {
+    key: 'allowEditStages',
+    title: 'עריכת שלבי תיק ומשימות',
+    description: 'מאפשר לעובד רגיל לשנות סטטוס, שלב בתיק ומשימות בצ׳ק-ליסט',
+  },
+  {
+    key: 'allowEditFeesAndDebt',
+    title: 'עריכת סכומי חוב ושכר טרחה',
+    description: 'מאפשר לעובד רגיל לעדכן סכומי קרן, ריבית, הוצאות וסטטוס גביית שכ"ט',
+  },
+  {
+    key: 'allowDeleteAndArchive',
+    title: 'מחיקת / ארכוב תיקים',
+    description: 'מאפשר לעובד רגיל להעביר תיקים לארכיון או למחוק תיקים ותרשומות',
+  },
+  {
+    key: 'allowExportAndBackup',
+    title: 'ייצוא וגיבוי נתונים',
+    description: 'מאפשר לעובד רגיל לייצא דוחות לאקסל ולהוריד קובץ גיבוי JSON',
+  },
+];
+
 export function ExecutiveSettingsModal({
   isOpen,
   onClose,
   currentUser,
+  workerPermissions,
+  onWorkerPermissionsChange,
   onToggleRoleQuick,
   onOpenUsersModal,
   onOpenMuniModal,
@@ -1480,8 +1617,37 @@ export function ExecutiveSettingsModal({
 }: ExecutiveSettingsModalProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [adminUnlocked, setAdminUnlocked] = useState<boolean>(
+    currentUser.role === 'admin'
+  );
+  const [passwordInput, setPasswordInput] = useState('');
+  const [passwordError, setPasswordError] = useState(false);
 
   if (!isOpen) return null;
+
+  const handleUnlockAdmin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (verifyAdminPassword(passwordInput)) {
+      setAdminUnlocked(true);
+      setPasswordError(false);
+      setPasswordInput('');
+    } else {
+      setPasswordError(true);
+    }
+  };
+
+  const handleTogglePermission = (key: keyof WorkerPermissionsConfig) => {
+    if (!adminUnlocked) {
+      alert('הזן סיסמת מנהל כדי לשנות מתגי הרשאות עובדים');
+      return;
+    }
+    const updated: WorkerPermissionsConfig = {
+      ...workerPermissions,
+      [key]: !workerPermissions[key],
+    };
+    saveWorkerPermissions(updated);
+    onWorkerPermissionsChange(updated);
+  };
 
   const handleRestoreFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -1523,23 +1689,51 @@ export function ExecutiveSettingsModal({
 
   return (
     <div
-      className="fixed inset-0 z-[65] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 no-print transition-all duration-200"
+      className="fixed inset-0 z-[65] bg-slate-900/65 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 no-print transition-all duration-200"
       onClick={onClose}
     >
       <div
         dir="rtl"
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col max-h-[88dvh] overflow-hidden"
+        className="w-full max-w-3xl bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col max-h-[90dvh] overflow-hidden"
       >
-        <div className="px-5 py-4 bg-[#0F172A] text-white flex items-center justify-between">
+        {/* שורת ניווט עליונה: מסך הבית > מסך תפעול והרשאות למנהל + חזרה למסך קודם */}
+        <div className="px-4 py-2 bg-slate-800 text-slate-200 border-b border-slate-700 flex items-center justify-between text-xs font-bold shrink-0">
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={onClose}
+              className="hover:text-white inline-flex items-center gap-1 text-sky-300 font-extrabold"
+            >
+              <Home className="w-3.5 h-3.5" />
+              <span>מסך הבית</span>
+            </button>
+            <span className="text-slate-500">&gt;</span>
+            <span className="text-white font-extrabold">
+              מסך תפעול והרשאות למנהל (Admin Operations Panel)
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white font-extrabold inline-flex items-center gap-1 transition"
+          >
+            <ArrowRight className="w-3.5 h-3.5" />
+            <span>חזרה למסך קודם</span>
+          </button>
+        </div>
+
+        <div className="px-5 py-4 bg-[#0F172A] text-white flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
-            <Settings className="w-5 h-5 text-slate-300" />
+            <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center">
+              <ShieldCheck className="w-5 h-5 text-white" />
+            </div>
             <div>
               <h3 className="text-lg font-extrabold">
-                הגדרות מערכת, הרשאות וגיבוי בטוח (Non-Destructive)
+                מסך תפעול והרשאות למנהל — Admin Operations Panel
               </h3>
               <p className="text-xs text-slate-300">
-                ניהול גיבוי ושחזור במיזוג בטוח, הרשאות עריכה, תעריפי רשויות וייבוא
+                מתגי הפעלה/נעילה לעובד רגיל, ניהול הרשאות וסיסמאות, גיבוי מלא (JSON) ושחזור בטוח
               </p>
             </div>
           </div>
@@ -1559,17 +1753,139 @@ export function ExecutiveSettingsModal({
             </div>
           )}
 
-          {/* 1. הגנה על נתונים: גיבוי מלא (JSON) ושחזור במיזוג בטוח */}
-          <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-3">
+          {/* אימות סיסמת מנהל לפתיחת מתגי הניהול */}
+          {!adminUnlocked ? (
+            <form
+              onSubmit={handleUnlockAdmin}
+              className="bg-amber-50 border-2 border-amber-300 p-4 rounded-2xl space-y-3"
+            >
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <Lock className="w-5 h-5 text-amber-700" />
+                  <span className="text-sm font-extrabold text-amber-950">
+                    מסך תפעול מוגן בסיסמת מנהל — הזן סיסמת מנהל לפתיחת מתגי ההרשאות:
+                  </span>
+                </div>
+                <span className="text-xs font-bold text-amber-800">
+                  (סיסמת ברירת מחדל: 1234)
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="password"
+                  value={passwordInput}
+                  onChange={(e) => setPasswordInput(e.target.value)}
+                  placeholder="הקלד סיסמת מנהל (1234)..."
+                  className="flex-1 p-2.5 text-sm rounded-xl border border-amber-400 bg-white font-bold outline-none"
+                />
+                <button
+                  type="submit"
+                  className="px-4 py-2.5 rounded-xl bg-[#0F172A] hover:bg-blue-700 text-white text-xs font-extrabold flex items-center gap-1.5"
+                >
+                  <Unlock className="w-4 h-4" />
+                  פתח נעילת מנהל
+                </button>
+              </div>
+              {passwordError && (
+                <p className="text-xs font-extrabold text-red-600">
+                  סיסמה שגויה. נסה שנית (ברירת מחדל: 1234).
+                </p>
+              )}
+            </form>
+          ) : (
+            <div className="px-4 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-between text-xs">
+              <div className="flex items-center gap-2 font-extrabold text-emerald-900">
+                <Unlock className="w-4 h-4 text-emerald-600" />
+                <span>מצב מנהל מערכת מאומת ופתוח לעריכת מתגי הרשאות</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAdminUnlocked(false)}
+                className="px-2.5 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 font-bold"
+              >
+                נעל מסך מנהל
+              </button>
+            </div>
+          )}
+
+          {/* 1. מתגי הפעלה/נעילה לעובד רגיל (Toggle Switches) */}
+          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+              <div>
+                <h4 className="text-sm sm:text-base font-extrabold text-slate-900 flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-indigo-600" />
+                  1. מתגי הפעלה / נעילה לעובד רגיל (Worker Permissions Toggles)
+                </h4>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  קבע בלחיצה אילו פעולות פתוחות ואילו נעולות כאשר משתמש מחובר בתור עובד רגיל (user)
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onToggleRoleQuick}
+                className={`px-3 py-1.5 rounded-xl text-xs font-extrabold border transition ${
+                  currentUser.role === 'admin'
+                    ? 'bg-indigo-50 text-indigo-900 border-indigo-200 hover:bg-indigo-100'
+                    : 'bg-amber-100 text-amber-950 border-amber-300'
+                }`}
+              >
+                תצוגה נוכחית: {currentUser.role === 'admin' ? 'מנהל (admin)' : 'עובד (user)'} — לחץ להחלפה
+              </button>
+            </div>
+
+            <div className="divide-y divide-slate-100">
+              {PERMISSION_ITEMS.map((item) => {
+                const enabled = workerPermissions[item.key];
+                return (
+                  <div
+                    key={item.key}
+                    className="py-3 flex items-center justify-between gap-3"
+                  >
+                    <div>
+                      <div className="text-sm font-extrabold text-slate-900">
+                        {item.title}
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        {item.description}
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={!adminUnlocked}
+                      onClick={() => handleTogglePermission(item.key)}
+                      className={`px-3.5 py-2 rounded-xl text-xs font-extrabold border flex items-center gap-2 transition shrink-0 ${
+                        enabled
+                          ? 'bg-emerald-600 text-white border-emerald-700 shadow-2xs'
+                          : 'bg-slate-100 text-slate-600 border-slate-300'
+                      } ${!adminUnlocked ? 'opacity-60 cursor-not-allowed' : ''}`}
+                    >
+                      {enabled ? (
+                        <>
+                          <Unlock className="w-3.5 h-3.5" />
+                          <span>פתוח לעובד ✓</span>
+                        </>
+                      ) : (
+                        <>
+                          <Lock className="w-3.5 h-3.5" />
+                          <span>נעול לעובד 🔒</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 2. גיבוי מלא (JSON) ושחזור במיזוג בטוח */}
+          <div className="bg-white p-4 rounded-2xl border border-slate-200 space-y-3">
             <div className="flex items-center gap-2">
               <Database className="w-4 h-4 text-[#1E3A8A]" />
               <h4 className="text-sm font-extrabold text-slate-900">
-                1. גיבוי ושחזור נתונים (Non-Destructive Data Safety)
+                2. גיבוי ושחזור נתונים (Non-Destructive Data Safety)
               </h4>
             </div>
-            <p className="text-xs text-slate-600">
-              המערכת שומרת על התיקים שלך במפתח קבוע ב-LocalStorage ולעולם אינה דורסת אותם בעדכוני גרסה. מכאן תוכל להוריד גיבוי מלא או לשחזר במיזוג בטוח.
-            </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <button
@@ -1625,56 +1941,31 @@ export function ExecutiveSettingsModal({
             </div>
           </div>
 
-          {/* 2. הרשאות, משתמשים וסיסמת עריכה */}
-          <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-[#1E3A8A]" />
-                <h4 className="text-sm font-extrabold text-slate-900">
-                  2. הרשאות, משתמשים וכללי שכר טרחה לרשויות
-                </h4>
-              </div>
-              <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-800">
-                מחובר כעת: {currentUser.displayName} ({currentUser.role})
-              </span>
-            </div>
+          {/* 3. משתמשים ותעריפי שכ"ט רשויות */}
+          <div className="bg-white p-4 rounded-2xl border border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onOpenUsersModal();
+              }}
+              className="p-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-extrabold flex items-center justify-center gap-2 transition"
+            >
+              <Users className="w-4 h-4 text-[#1E3A8A]" />
+              <span>ניהול משתמשים וסיסמאות</span>
+            </button>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-              <button
-                type="button"
-                onClick={onToggleRoleQuick}
-                className="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-extrabold flex items-center justify-center gap-1.5 transition"
-              >
-                <ShieldCheck className="w-4 h-4 text-[#1E3A8A]" />
-                <span>
-                  החלף לתצוגת {currentUser.role === 'admin' ? 'עובד' : 'מנהל'}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onOpenUsersModal();
-                }}
-                className="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-extrabold flex items-center justify-center gap-1.5 transition"
-              >
-                <Users className="w-4 h-4 text-[#1E3A8A]" />
-                <span>משתמשים וסיסמאות</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onOpenMuniModal();
-                }}
-                className="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-extrabold flex items-center justify-center gap-1.5 transition"
-              >
-                <Landmark className="w-4 h-4 text-[#1E3A8A]" />
-                <span>הגדרות שכ&quot;ט רשויות</span>
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onOpenMuniModal();
+              }}
+              className="p-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-extrabold flex items-center justify-center gap-2 transition"
+            >
+              <Landmark className="w-4 h-4 text-[#1E3A8A]" />
+              <span>הגדרות כללי שכ&quot;ט רשויות</span>
+            </button>
           </div>
         </div>
       </div>

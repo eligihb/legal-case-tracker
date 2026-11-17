@@ -279,12 +279,23 @@ export interface CaseItem {
   custom_fields?: CaseCustomField[];
   stage_data?: Record<string, unknown>; // נתוני שלבים גמישים (JSONB)
 
-  // 6. ארכיון חכם (הושלם / ארכיון)
+  // 6. ארכיון חכם (הושלם / ארכיון) + מעקב שכ"ט וזמן היערכות
   is_archived?: boolean;
   archived_at?: string | null;
+  legal_fee_paid?: boolean; // האם שכר הטרחה שולם
+  legal_fee_paid_amount?: number; // סכום שכ"ט ששולם בפועל
+  prep_days_needed?: number; // ימי היערכות נדרשים להגשה/תגובה
 
   last_modified_by?: string;
   updated_at: string; // ISO string
+}
+
+export interface WorkerPermissionsConfig {
+  allowCustomFields: boolean; // הוספת שדות מותאמים
+  allowEditStages: boolean; // עריכת שלבי תיק
+  allowEditFeesAndDebt: boolean; // עריכת סכומי חוב ושכ"ט
+  allowDeleteAndArchive: boolean; // מחיקת/ארכוב תיקים
+  allowExportAndBackup: boolean; // ייצוא וגיבוי נתונים
 }
 
 export interface FullSystemBackup {

@@ -227,6 +227,9 @@ ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS milestones JSONB NOT NULL DEFA
 ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS monthly_reductions JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS is_archived BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS legal_fee_paid BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS legal_fee_paid_amount NUMERIC(12, 2) NOT NULL DEFAULT 0;
+ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS prep_days_needed INTEGER NOT NULL DEFAULT 7;
 
 -- 2ב. טבלת תבניות שדות מעקב ותזכורות מותאמים אישית בהחלה גורפת (custom_field_templates)
 CREATE TABLE IF NOT EXISTS public.custom_field_templates (
