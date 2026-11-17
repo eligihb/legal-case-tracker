@@ -1,2 +1,3 @@
-export const APP_VERSION = '133.1.22';
-export const APP_UPDATED_AT = '13/11/2026 01:21';
+export const APP_VERSION = '5.2';
+export const APP_VERSION_NAME = 'Executive Legal Command Center';
+export const APP_UPDATED_AT = '17/11/2026 08:10';

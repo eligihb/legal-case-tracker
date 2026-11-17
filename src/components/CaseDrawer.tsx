@@ -81,23 +81,32 @@ import {
 } from '@/lib/dateUtils';
 import { exportSingleCaseToXlsx } from './ExcelExportModal';
 import CopyButton from './CopyButton';
+import { InlineCustomFieldsList } from './CustomFieldsManager';
+
+export type DrawerTab = 'overview' | 'tasks' | 'logs';
 
 interface CaseDrawerProps {
   caseItem: CaseItem | null;
+  initialTab?: DrawerTab;
   onClose: () => void;
   onCaseUpdated: (updated: CaseItem) => void;
+  onAllCasesUpdated?: (updatedCases: CaseItem[]) => void;
+  onOpenAddCustomField?: (targetCase: CaseItem) => void;
+  onToggleArchive?: (caseItem: CaseItem) => void;
   onCaseDeleted: (id: string) => void;
   municipalitiesSettings: MunicipalitySetting[];
   currentUser: UserSession;
   onOpenMuniSettingsModal?: () => void;
 }
 
-type DrawerTab = 'overview' | 'tasks' | 'logs';
-
 export default function CaseDrawer({
   caseItem,
+  initialTab = 'overview',
   onClose,
   onCaseUpdated,
+  onAllCasesUpdated,
+  onOpenAddCustomField,
+  onToggleArchive,
   onCaseDeleted,
   municipalitiesSettings,
   currentUser,
@@ -253,12 +262,18 @@ export default function CaseDrawer({
   }, [caseItem]);
 
   useEffect(() => {
+    if (caseItem) {
+      setActiveTab(initialTab || 'overview');
+    }
+  }, [caseItem?.id, initialTab]);
+
+  useEffect(() => {
     if (!caseItem) {
       initializedCaseIdRef.current = null;
       return;
     }
     initializedCaseIdRef.current = null;
-    setActiveTab('overview');
+    setActiveTab(initialTab || 'overview');
     setRshuSubTab(
       caseItem.status === 'לפני תביעה' ? 'pre_suit' : 'execution'
     );
@@ -1101,18 +1116,8 @@ export default function CaseDrawer({
         dir="rtl"
         className="relative z-10 w-full max-w-6xl bg-white h-[100dvh] sm:h-[94vh] rounded-none sm:rounded-2xl shadow-2xl border-0 sm:border border-slate-200 flex flex-col overflow-hidden case-drawer-print-wrapper"
       >
-        {/* כותרת עליונה מרווחת עם כפתורי העתקה מהירה, הדפסה ישירה וייצוא לאקסל */}
-        <div
-          className={`px-3 sm:px-6 py-3 sm:py-4 text-white flex flex-wrap items-center justify-between gap-2 sm:gap-3 shrink-0 ${
-            category === 'גבייה'
-              ? 'bg-gradient-to-l from-indigo-950 via-blue-900 to-slate-900'
-              : category === 'חדל"פ'
-              ? 'bg-gradient-to-l from-purple-950 via-purple-900 to-slate-900'
-              : category === 'חברות'
-              ? 'bg-gradient-to-l from-emerald-950 via-teal-900 to-slate-900'
-              : 'bg-gradient-to-l from-amber-950 via-orange-900 to-slate-900'
-          }`}
-        >
+        {/* כותרת עליונה שקטה ונקייה עם כפתורי העתקה מהירה, ארכיון, הדפסה וייצוא לאקסל */}
+        <div className="px-3 sm:px-6 py-3 sm:py-4 bg-[#0F172A] text-white flex flex-wrap items-center justify-between gap-2 sm:gap-3 shrink-0">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2.5 flex-wrap">
               <span className="px-3 py-1 text-xs font-extrabold rounded-full bg-white/15 text-white border border-white/25">
@@ -1174,6 +1179,26 @@ export default function CaseDrawer({
                 ? 'שומר אוטומטית...'
                 : 'Auto-Save פעיל ✓'}
             </span>
+
+            {onToggleArchive && (
+              <button
+                type="button"
+                onClick={() => onToggleArchive(caseItem)}
+                className={`px-3.5 py-2 rounded-xl text-sm font-extrabold flex items-center gap-1.5 border transition ${
+                  caseItem.is_archived
+                    ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 border-amber-300'
+                    : 'bg-white/10 hover:bg-white/20 text-white border-white/20'
+                }`}
+                title={
+                  caseItem.is_archived
+                    ? 'שחזר תיק מהארכיון לפעילים'
+                    : 'העבר תיק לארכיון (הושלם / ארכיון)'
+                }
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                {caseItem.is_archived ? 'שחזר מארכיון' : 'הושלם / ארכיון'}
+              </button>
+            )}
 
             <button
               type="button"
@@ -1326,6 +1351,17 @@ export default function CaseDrawer({
               <MessageSquare className="w-4 h-4 text-amber-400 shrink-0" />
               <span>3. תרשומות וארכות ({logs.length})</span>
             </button>
+
+            {onOpenAddCustomField && (
+              <button
+                type="button"
+                onClick={() => onOpenAddCustomField(caseItem)}
+                className="px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-extrabold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs flex items-center gap-1.5 transition"
+              >
+                <Sparkles className="w-4 h-4 text-amber-300 shrink-0" />
+                <span>+ הוסף שדה מעקב / תזכורת</span>
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -2782,6 +2818,47 @@ export default function CaseDrawer({
                   </div>
                 </div>
               )}
+
+              {/* שדות מעקב ותזכורות מותאמים אישית (Inline Quick-Edit + החלה גורפת) */}
+              <div className="bg-indigo-50/50 p-4 rounded-2xl border-2 border-indigo-200 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-5 h-5 text-indigo-700" />
+                    <div>
+                      <h4 className="text-sm sm:text-base font-extrabold text-indigo-950">
+                        שדות מעקב ותזכורות מותאמים אישית (Inline Quick-Edit)
+                      </h4>
+                      <p className="text-xs text-indigo-800">
+                        ערוך בלחיצה ישירות מכאן או מהטבלה • ניתן להחיל שדה חדש על תיק זה, על כל תיקי {category} או על כלל התיקים במערכת
+                      </p>
+                    </div>
+                  </div>
+                  {onOpenAddCustomField && (
+                    <button
+                      type="button"
+                      onClick={() => onOpenAddCustomField(caseItem)}
+                      className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-xs transition no-print"
+                    >
+                      <Plus className="w-4 h-4" />
+                      + הוסף שדה מעקב / תזכורת
+                    </button>
+                  )}
+                </div>
+
+                <InlineCustomFieldsList
+                  caseItem={caseItem}
+                  onCasesUpdated={(updatedList) => {
+                    if (onAllCasesUpdated) {
+                      onAllCasesUpdated(updatedList);
+                    }
+                    const found = updatedList.find((c) => c.id === caseItem.id);
+                    if (found) onCaseUpdated(found);
+                  }}
+                  onOpenAddModal={(target) => {
+                    if (onOpenAddCustomField) onOpenAddCustomField(target);
+                  }}
+                />
+              </div>
 
               {/* הערות ליבה ותגיות */}
               <div className="bg-white p-4 rounded-2xl border border-slate-200 grid grid-cols-1 lg:grid-cols-2 gap-4">

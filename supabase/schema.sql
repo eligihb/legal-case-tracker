@@ -1,10 +1,11 @@
 -- ============================================================================
--- מערכת ניהול תיקים משפטיים - סכמת מסד נתונים מלאה (PostgreSQL / Supabase)
--- מותאם ל-4 עולמות התוכן:
--- 1. תיקי רשויות (גבייה והוצל"פ) — כחול/אינדיגו
--- 2. תיקי חדל"פ (ייצוג נושה / פירוק) — סגול
--- 3. תיקי חברות (נאמן / מפרק) — טורקיז/אמרלד
--- 4. חברה משכנת (רישום וזכויות) — ענבר/כתום
+-- מערכת ניהול תיקים משפטיים - גרסה 5.2 (Executive Legal Command Center)
+-- סכמת מסד נתונים מלאה ובטוחה לעדכונים (Non-Destructive PostgreSQL / Supabase)
+-- מותאם ל-4 עולמות התוכן + ארכיון חכם + עמודות JSONB גמישות לשלבים ולשדות מותאמים:
+-- 1. תיקי רשויות (גבייה והוצל"פ)
+-- 2. תיקי חדל"פ (ייצוג נושה / פירוק)
+-- 3. תיקי חברות (נאמן / מפרק)
+-- 4. חברה משכנת (רישום וזכויות)
 -- ============================================================================
 
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
@@ -201,8 +202,46 @@ CREATE TABLE IF NOT EXISTS public.cases (
     transfer_process_stage TEXT DEFAULT '',                              -- שלב בחינה וביצוע
     new_buyer_certificate_issued BOOLEAN NOT NULL DEFAULT FALSE,         -- הפקת אישור זכויות על שם הקונה החדש
 
+    -- ========================================================================
+    -- שדות מעקב ותזכורות מותאמים אישית + נתוני שלבים גמישים + ארכיון חכם
+    -- ========================================================================
+    custom_fields JSONB NOT NULL DEFAULT '[]'::jsonb,                    -- שדות מותאמים (טקסט, תאריך, כן/לא, תזכורת עם מועד)
+    stage_data JSONB NOT NULL DEFAULT '{}'::jsonb,                       -- נתוני שלבים גמישים (JSONB) לעדכוני גרסה ללא אובדן מידע
+    is_archived BOOLEAN NOT NULL DEFAULT FALSE,                          -- האם התיק הועבר לארכיון (הושלם / ארכיון)
+    archived_at TIMESTAMPTZ,                                             -- מועד העברה לארכיון
+
     last_modified_by TEXT DEFAULT 'מנהל מערכת',
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ============================================================================
+-- מיגרציה בטוחה (Non-Destructive Safe Migration) לטבלאות קיימות ללא דריסת נתונים
+-- ============================================================================
+ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS custom_fields JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS stage_data JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS milestones JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS monthly_reductions JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS is_archived BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+
+-- 2ב. טבלת תבניות שדות מעקב ותזכורות מותאמים אישית בהחלה גורפת (custom_field_templates)
+CREATE TABLE IF NOT EXISTS public.custom_field_templates (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    field_key TEXT NOT NULL UNIQUE CHECK (char_length(trim(field_key)) > 0),
+    label TEXT NOT NULL CHECK (char_length(trim(label)) > 0),
+    field_type TEXT NOT NULL DEFAULT 'text' CHECK (
+        field_type IN ('text', 'date', 'boolean', 'reminder')
+    ),
+    default_value TEXT DEFAULT '',
+    default_due_date DATE,
+    scope TEXT NOT NULL DEFAULT 'category' CHECK (
+        scope IN ('case', 'category', 'all')
+    ),
+    category TEXT CHECK (
+        category IS NULL OR category IN ('גבייה', 'חדל"פ', 'חברות', 'חברה משכנת')
+    ),
+    created_by TEXT NOT NULL DEFAULT 'מנהל מערכת',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- 3. טבלת תרשומות שיחה, הערות, תזכורות, החלטות וארכות (case_logs)
@@ -236,6 +275,7 @@ CREATE INDEX IF NOT EXISTS idx_cases_next_due_date ON public.cases(next_due_date
 CREATE INDEX IF NOT EXISTS idx_cases_trustee_report_due ON public.cases(trustee_report_due_date ASC NULLS LAST);
 CREATE INDEX IF NOT EXISTS idx_cases_municipality ON public.cases(municipality);
 CREATE INDEX IF NOT EXISTS idx_cases_tags_gin ON public.cases USING GIN(tags);
+CREATE INDEX IF NOT EXISTS idx_cases_custom_fields_gin ON public.cases USING GIN(custom_fields);
 CREATE INDEX IF NOT EXISTS idx_cases_updated_at ON public.cases(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_case_logs_case_id_date ON public.case_logs(case_id, log_date DESC);
 

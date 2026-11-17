@@ -6,19 +6,39 @@ import {
   INITIAL_SYSTEM_USERS,
 } from './sampleData';
 import {
+  CaseCategory,
+  CaseCustomField,
   CaseItem,
   CaseLog,
+  CustomFieldScope,
+  CustomFieldType,
+  FullSystemBackup,
   MunicipalitySetting,
   SystemUserAccount,
   UserSession,
 } from '@/types/database';
+import { APP_VERSION } from './version';
 
+// מפתחות אחסון קבועים ב-LocalStorage (Non-Destructive Data Safety)
 const STORAGE_CASES_KEY = 'legal_fork_cases_v4';
 const STORAGE_LOGS_KEY = 'legal_fork_logs_v4';
 const STORAGE_MUNI_SETTINGS_KEY = 'legal_fork_muni_settings_v4';
 const STORAGE_SYSTEM_USERS_KEY = 'legal_fork_system_users_v4';
 const STORAGE_DEMO_AUTH_KEY = 'legal_fork_demo_authenticated';
 const STORAGE_USER_SESSION_KEY = 'legal_fork_user_session_v3';
+
+const LEGACY_CASES_KEYS = [
+  'legal_fork_cases_v3',
+  'legal_fork_cases_v2',
+  'legal_fork_cases_v1',
+  'legal_fork_cases',
+];
+const LEGACY_LOGS_KEYS = [
+  'legal_fork_logs_v3',
+  'legal_fork_logs_v2',
+  'legal_fork_logs_v1',
+  'legal_fork_logs',
+];
 
 export function generateId(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -168,21 +188,154 @@ export function signOutDemo(): void {
 }
 
 // ============================================================================
-// LocalStorage Helpers
+// פונקציית מיגרציה בטוחה (Safe Merge / Non-Destructive Normalization):
+// לעולם אינה דורסת או מאפסת שדות קיימים בתיק — רק מוסיפה שדות ברירת מחדל חסרים
+// ============================================================================
+export function safeNormalizeCaseItem(raw: Partial<CaseItem>): CaseItem {
+  return {
+    id: raw.id || generateId(),
+    debtor_name: raw.debtor_name || 'תיק ללא שם',
+    id_or_hp: raw.id_or_hp ?? '',
+    case_number: raw.case_number ?? '',
+    gush_helka: raw.gush_helka ?? '',
+    category: raw.category || 'גבייה',
+    current_stage: raw.current_stage ?? (raw.status || 'פתיחת תיק ובדיקות'),
+    municipality: raw.municipality ?? null,
+    tags: Array.isArray(raw.tags) ? raw.tags : [],
+    status: raw.status || 'פעיל',
+    notes: raw.notes ?? '',
+    next_action_type: raw.next_action_type || 'אחר',
+    next_action_description: raw.next_action_description ?? '',
+    next_due_date: raw.next_due_date ?? null,
+    extensions_count: Number(raw.extensions_count) || 0,
+    is_hearing_postponed: Boolean(raw.is_hearing_postponed),
+    postponed_reason: raw.postponed_reason ?? '',
+    trustee_report_due_date: raw.trustee_report_due_date ?? null,
+
+    // רשויות
+    debt_years: raw.debt_years ?? '',
+    principal_amount: Number(raw.principal_amount) || 0,
+    interest_amount: Number(raw.interest_amount) || 0,
+    expenses_amount: Number(raw.expenses_amount) || 0,
+    legal_fee_amount: Number(raw.legal_fee_amount) || 0,
+    gachlat_status: raw.gachlat_status || 'חסר גח"לת',
+    has_property: Boolean(raw.has_property),
+    property_details: raw.property_details ?? '',
+    warning_letter_sent_date: raw.warning_letter_sent_date ?? null,
+    delivery_confirmation_date: raw.delivery_confirmation_date ?? null,
+    execution_target_date: raw.execution_target_date ?? null,
+    execution_proceedings_notes: raw.execution_proceedings_notes ?? '',
+    monthly_reductions: Array.isArray(raw.monthly_reductions)
+      ? raw.monthly_reductions
+      : [],
+    milestones: Array.isArray(raw.milestones) ? raw.milestones : [],
+    is_old_debt_writeoff: Boolean(raw.is_old_debt_writeoff),
+    writeoff_classification: raw.writeoff_classification ?? null,
+    legal_opinion_summary: raw.legal_opinion_summary ?? '',
+
+    // חדל"פ
+    is_material_creditor: Boolean(raw.is_material_creditor),
+    insolvency_debtor_type: raw.insolvency_debtor_type || 'חייב יחיד',
+    trustee_name_and_contact: raw.trustee_name_and_contact ?? '',
+    debt_claim_deadline: raw.debt_claim_deadline ?? null,
+    debt_claim_submitted: Boolean(raw.debt_claim_submitted),
+    debt_claim_amount: Number(raw.debt_claim_amount) || 0,
+    creditor_responses_notes: raw.creditor_responses_notes ?? '',
+    new_debts_tracking: raw.new_debts_tracking ?? '',
+
+    // חברות
+    self_undertaking_deposited: Boolean(raw.self_undertaking_deposited),
+    self_undertaking_date: raw.self_undertaking_date ?? null,
+    insurance_and_assets_letters_status:
+      raw.insurance_and_assets_letters_status ?? '',
+    representative_contact_details: raw.representative_contact_details ?? '',
+    investigating_trustee_name: raw.investigating_trustee_name ?? '',
+    investigation_scheduled_date: raw.investigation_scheduled_date ?? null,
+    required_documents_checklist: raw.required_documents_checklist ?? '',
+    investigation_outcome: raw.investigation_outcome || 'טרם נחקר',
+    missing_documents_details: raw.missing_documents_details ?? '',
+    trustee_findings_summary: raw.trustee_findings_summary ?? '',
+    company_resolution_decision:
+      raw.company_resolution_decision || 'טרם הוכרע',
+
+    // חברה משכנת
+    housing_project_name: raw.housing_project_name ?? '',
+    liquidators_sale_approval: Boolean(raw.liquidators_sale_approval),
+    physical_files_location: raw.physical_files_location ?? '',
+    rights_certificate_issued: Boolean(raw.rights_certificate_issued),
+    surveyor_name: raw.surveyor_name ?? '',
+    tazar_status: raw.tazar_status ?? '',
+    parking_tazar_handled: Boolean(raw.parking_tazar_handled),
+    parking_tazar_notes: raw.parking_tazar_notes ?? '',
+    condominium_registration_fit:
+      raw.condominium_registration_fit || 'בבדיקה',
+    invoices_court_control: raw.invoices_court_control ?? '',
+    seller_buyer_names: raw.seller_buyer_names ?? '',
+    transfer_signing_docs_complete: Boolean(raw.transfer_signing_docs_complete),
+    transfer_liquidator_approved: Boolean(raw.transfer_liquidator_approved),
+    transfer_process_stage: raw.transfer_process_stage ?? '',
+    new_buyer_certificate_issued: Boolean(raw.new_buyer_certificate_issued),
+
+    // שדות מותאמים, נתוני שלבים גמישים וארכיון חכם
+    custom_fields: Array.isArray(raw.custom_fields) ? raw.custom_fields : [],
+    stage_data:
+      raw.stage_data && typeof raw.stage_data === 'object'
+        ? raw.stage_data
+        : {},
+    is_archived: Boolean(raw.is_archived),
+    archived_at: raw.archived_at ?? null,
+
+    last_modified_by: raw.last_modified_by || 'מנהל מערכת',
+    updated_at: raw.updated_at || new Date().toISOString(),
+  };
+}
+
+// ============================================================================
+// LocalStorage Helpers (עם מיגרציה בטוחה של תיקים קיימים ללא דריסת מידע)
 // ============================================================================
 function getLocalCases(): CaseItem[] {
-  if (typeof window === 'undefined') return INITIAL_SAMPLE_CASES;
-  const raw = localStorage.getItem(STORAGE_CASES_KEY);
+  if (typeof window === 'undefined') {
+    return INITIAL_SAMPLE_CASES.map((c) => safeNormalizeCaseItem(c));
+  }
+
+  let raw = localStorage.getItem(STORAGE_CASES_KEY);
+
+  // בדיקת מפתחות מגרסאות קודמות אם המפתח הראשי טרם קיים (Safe Migration)
   if (!raw) {
-    localStorage.setItem(STORAGE_CASES_KEY, JSON.stringify(INITIAL_SAMPLE_CASES));
-    localStorage.setItem(STORAGE_LOGS_KEY, JSON.stringify(INITIAL_SAMPLE_LOGS));
-    return INITIAL_SAMPLE_CASES;
+    for (const legacyKey of LEGACY_CASES_KEYS) {
+      const legacyVal = localStorage.getItem(legacyKey);
+      if (legacyVal) {
+        raw = legacyVal;
+        break;
+      }
+    }
   }
-  try {
-    return JSON.parse(raw) as CaseItem[];
-  } catch {
-    return INITIAL_SAMPLE_CASES;
+
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const normalized = parsed.map((c) => safeNormalizeCaseItem(c));
+        localStorage.setItem(STORAGE_CASES_KEY, JSON.stringify(normalized));
+        return normalized;
+      }
+    } catch (err) {
+      console.warn('Error parsing stored cases, preserving safety:', err);
+    }
   }
+
+  // טעינת נתוני דוגמה אך ורק אם המאגר ריק לחלוטין (0 תיקים)
+  const initialNormalized = INITIAL_SAMPLE_CASES.map((c) =>
+    safeNormalizeCaseItem(c)
+  );
+  localStorage.setItem(STORAGE_CASES_KEY, JSON.stringify(initialNormalized));
+  if (!localStorage.getItem(STORAGE_LOGS_KEY)) {
+    localStorage.setItem(
+      STORAGE_LOGS_KEY,
+      JSON.stringify(INITIAL_SAMPLE_LOGS)
+    );
+  }
+  return initialNormalized;
 }
 
 function saveLocalCases(cases: CaseItem[]): void {
@@ -193,7 +346,16 @@ function saveLocalCases(cases: CaseItem[]): void {
 
 function getLocalLogs(): CaseLog[] {
   if (typeof window === 'undefined') return INITIAL_SAMPLE_LOGS;
-  const raw = localStorage.getItem(STORAGE_LOGS_KEY);
+  let raw = localStorage.getItem(STORAGE_LOGS_KEY);
+  if (!raw) {
+    for (const legacyKey of LEGACY_LOGS_KEYS) {
+      const legacyVal = localStorage.getItem(legacyKey);
+      if (legacyVal) {
+        raw = legacyVal;
+        break;
+      }
+    }
+  }
   if (!raw) {
     localStorage.setItem(STORAGE_LOGS_KEY, JSON.stringify(INITIAL_SAMPLE_LOGS));
     return INITIAL_SAMPLE_LOGS;
@@ -578,3 +740,335 @@ export async function deleteCaseLog(logId: string): Promise<void> {
     if (error) throw error;
   }
 }
+
+// ============================================================================
+// שדות מעקב ותזכורות מותאמים אישית + החלה גורפת (Custom Fields & Bulk Apply)
+// ============================================================================
+export async function createCustomFieldAndApply(params: {
+  label: string;
+  field_type: CustomFieldType;
+  initial_value: string | boolean;
+  due_date?: string | null;
+  scope: CustomFieldScope;
+  target_case_id?: string | null;
+  target_category?: CaseCategory | null;
+}): Promise<CaseItem[]> {
+  const user = getCurrentUserSession();
+  const now = new Date().toISOString();
+  const fieldKey = `cf_${generateId()}`;
+  const cases = getLocalCases();
+
+  const updatedCases = cases.map((c) => {
+    const shouldApply =
+      params.scope === 'all' ||
+      (params.scope === 'category' && c.category === params.target_category) ||
+      (params.scope === 'case' && c.id === params.target_case_id);
+
+    if (!shouldApply) return c;
+
+    const existingFields = c.custom_fields || [];
+    const newField: CaseCustomField = {
+      id: generateId(),
+      field_key: fieldKey,
+      label: params.label.trim(),
+      field_type: params.field_type,
+      value: params.initial_value,
+      due_date: params.due_date || null,
+      is_done: params.field_type === 'boolean' ? Boolean(params.initial_value) : false,
+      scope: params.scope,
+      category: params.scope === 'category' ? params.target_category || c.category : null,
+      updated_by: user.displayName,
+      updated_at: now,
+    };
+
+    return {
+      ...c,
+      custom_fields: [...existingFields, newField],
+      last_modified_by: user.displayName,
+      updated_at: now,
+    };
+  });
+
+  saveLocalCases(updatedCases);
+  return updatedCases;
+}
+
+export async function updateCustomFieldInline(
+  caseId: string,
+  fieldId: string,
+  updates: Partial<Pick<CaseCustomField, 'value' | 'due_date' | 'is_done' | 'label'>>
+): Promise<CaseItem[]> {
+  const user = getCurrentUserSession();
+  const now = new Date().toISOString();
+  const cases = getLocalCases();
+
+  const updatedCases = cases.map((c) => {
+    if (c.id !== caseId) return c;
+    const nextFields = (c.custom_fields || []).map((f) =>
+      f.id === fieldId
+        ? {
+            ...f,
+            ...updates,
+            updated_by: user.displayName,
+            updated_at: now,
+          }
+        : f
+    );
+    return {
+      ...c,
+      custom_fields: nextFields,
+      last_modified_by: user.displayName,
+      updated_at: now,
+    };
+  });
+
+  saveLocalCases(updatedCases);
+  return updatedCases;
+}
+
+export async function deleteCustomFieldFromCases(
+  caseId: string,
+  fieldId: string,
+  fieldKey: string,
+  removeFromAllMatchingScope = false
+): Promise<CaseItem[]> {
+  const user = getCurrentUserSession();
+  const now = new Date().toISOString();
+  const cases = getLocalCases();
+
+  const updatedCases = cases.map((c) => {
+    if (!removeFromAllMatchingScope && c.id !== caseId) return c;
+    const before = c.custom_fields || [];
+    const after = before.filter((f) =>
+      removeFromAllMatchingScope ? f.field_key !== fieldKey : f.id !== fieldId
+    );
+    if (after.length === before.length) return c;
+    return {
+      ...c,
+      custom_fields: after,
+      last_modified_by: user.displayName,
+      updated_at: now,
+    };
+  });
+
+  saveLocalCases(updatedCases);
+  return updatedCases;
+}
+
+// ============================================================================
+// ארכיון חכם (הושלם / ארכיון) — העברה לארכיון ושחזור לפעילים
+// ============================================================================
+export async function toggleArchiveCase(
+  caseId: string,
+  archive: boolean
+): Promise<CaseItem[]> {
+  const user = getCurrentUserSession();
+  const now = new Date().toISOString();
+  const cases = getLocalCases();
+
+  const updatedCases = cases.map((c) => {
+    if (c.id !== caseId) return c;
+    return {
+      ...c,
+      is_archived: archive,
+      archived_at: archive ? now : null,
+      status: archive && c.status !== 'סגור' ? 'סגור' : !archive && c.status === 'סגור' ? 'פעיל' : c.status,
+      last_modified_by: user.displayName,
+      updated_at: now,
+    };
+  });
+
+  saveLocalCases(updatedCases);
+
+  await addCaseLog({
+    case_id: caseId,
+    log_type: 'פעולה שבוצעה',
+    content: archive
+      ? `התיק הועבר לארכיון (הושלם / ארכיון) ע"י ${user.displayName}`
+      : `התיק שוחזר מהארכיון לרשימת התיקים הפעילים ע"י ${user.displayName}`,
+    created_by: user.displayName,
+  });
+
+  return updatedCases;
+}
+
+// ============================================================================
+// גיבוי מלא (JSON) ושחזור במיזוג בטוח (Safe Merge Restore) + טעינת דוגמה בטוחה
+// ============================================================================
+export function createFullSystemBackupObject(): FullSystemBackup {
+  return {
+    version: APP_VERSION,
+    exported_at: new Date().toISOString(),
+    cases: getLocalCases(),
+    logs: getLocalLogs(),
+    municipalities_settings: getLocalMunicipalitiesSettings(),
+    system_users: getLocalSystemUsers(),
+  };
+}
+
+export function downloadFullSystemBackupJson(): void {
+  if (typeof window === 'undefined') return;
+  const backup = createFullSystemBackupObject();
+  const json = JSON.stringify(backup, null, 2);
+  const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const datePart = new Date().toISOString().split('T')[0];
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `legal-command-center-backup-${datePart}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+export function restoreFromBackupSafeMerge(
+  rawBackup: Partial<FullSystemBackup> | CaseItem[]
+): {
+  cases: CaseItem[];
+  logs: CaseLog[];
+  muniSettings: MunicipalitySetting[];
+  users: SystemUserAccount[];
+  addedCasesCount: number;
+  updatedCasesCount: number;
+} {
+  const existingCases = getLocalCases();
+  const existingLogs = getLocalLogs();
+  const existingMunis = getLocalMunicipalitiesSettings();
+  const existingUsers = getLocalSystemUsers();
+
+  const incomingCasesRaw: Partial<CaseItem>[] = Array.isArray(rawBackup)
+    ? rawBackup
+    : Array.isArray(rawBackup.cases)
+    ? rawBackup.cases
+    : [];
+
+  const mergedCasesMap = new Map<string, CaseItem>();
+  for (const c of existingCases) {
+    mergedCasesMap.set(c.id, safeNormalizeCaseItem(c));
+  }
+
+  let addedCasesCount = 0;
+  let updatedCasesCount = 0;
+
+  for (const inc of incomingCasesRaw) {
+    const normalizedInc = safeNormalizeCaseItem(inc);
+    // זיהוי לפי id או לפי מספר תיק + שם חייב
+    let matchKey: string | null = null;
+    if (mergedCasesMap.has(normalizedInc.id)) {
+      matchKey = normalizedInc.id;
+    } else if (normalizedInc.case_number && normalizedInc.debtor_name) {
+      const found = Array.from(mergedCasesMap.values()).find(
+        (existing) =>
+          existing.case_number === normalizedInc.case_number &&
+          existing.debtor_name === normalizedInc.debtor_name
+      );
+      if (found) matchKey = found.id;
+    }
+
+    if (matchKey) {
+      const curr = mergedCasesMap.get(matchKey)!;
+      // מיזוג בטוח של שדות מותאמים ומשימות מבלי למחוק נתונים קיימים
+      const mergedCustomFields = [...(curr.custom_fields || [])];
+      for (const cf of normalizedInc.custom_fields || []) {
+        if (
+          !mergedCustomFields.some(
+            (e) => e.id === cf.id || e.field_key === cf.field_key
+          )
+        ) {
+          mergedCustomFields.push(cf);
+        }
+      }
+      const mergedMilestones = [...(curr.milestones || [])];
+      for (const ms of normalizedInc.milestones || []) {
+        if (
+          !mergedMilestones.some(
+            (e) => e.id === ms.id || e.title === ms.title
+          )
+        ) {
+          mergedMilestones.push(ms);
+        }
+      }
+
+      mergedCasesMap.set(
+        matchKey,
+        safeNormalizeCaseItem({
+          ...curr,
+          ...normalizedInc,
+          id: curr.id,
+          custom_fields: mergedCustomFields,
+          milestones: mergedMilestones,
+        })
+      );
+      updatedCasesCount++;
+    } else {
+      mergedCasesMap.set(normalizedInc.id, normalizedInc);
+      addedCasesCount++;
+    }
+  }
+
+  const finalCases = Array.from(mergedCasesMap.values());
+  saveLocalCases(finalCases);
+
+  // מיזוג בטוח של יומן התרשומות
+  const incomingLogs =
+    !Array.isArray(rawBackup) && Array.isArray(rawBackup.logs)
+      ? rawBackup.logs
+      : [];
+  const logsMap = new Map<string, CaseLog>();
+  for (const l of existingLogs) logsMap.set(l.id, l);
+  for (const l of incomingLogs) {
+    if (l && l.id && !logsMap.has(l.id)) {
+      logsMap.set(l.id, l);
+    }
+  }
+  const finalLogs = Array.from(logsMap.values()).sort(
+    (a, b) => new Date(b.log_date).getTime() - new Date(a.log_date).getTime()
+  );
+  saveLocalLogs(finalLogs);
+
+  // מיזוג בטוח של הגדרות רשויות
+  const incomingMunis =
+    !Array.isArray(rawBackup) &&
+    Array.isArray(rawBackup.municipalities_settings)
+      ? rawBackup.municipalities_settings
+      : [];
+  const munisMap = new Map<string, MunicipalitySetting>();
+  for (const m of existingMunis) munisMap.set(m.municipality_name, m);
+  for (const m of incomingMunis) {
+    if (m && m.municipality_name) {
+      munisMap.set(m.municipality_name, m);
+    }
+  }
+  const finalMunis = Array.from(munisMap.values());
+  saveLocalMunicipalitiesSettings(finalMunis);
+
+  return {
+    cases: finalCases,
+    logs: finalLogs,
+    muniSettings: finalMunis,
+    users: existingUsers,
+    addedCasesCount,
+    updatedCasesCount,
+  };
+}
+
+// טעינה יזומה ובטוחה של נתוני דוגמה (ממזגת את תיקי הדוגמה מבלי למחוק תיקים שהמשתמש יצר!)
+export function loadSampleDataSafeMerge(): {
+  cases: CaseItem[];
+  logs: CaseLog[];
+  muniSettings: MunicipalitySetting[];
+  users: SystemUserAccount[];
+  addedCasesCount: number;
+  updatedCasesCount: number;
+} {
+  return restoreFromBackupSafeMerge({
+    version: APP_VERSION,
+    exported_at: new Date().toISOString(),
+    cases: INITIAL_SAMPLE_CASES,
+    logs: INITIAL_SAMPLE_LOGS,
+    municipalities_settings: INITIAL_MUNICIPALITIES_SETTINGS,
+  });
+}
+
+

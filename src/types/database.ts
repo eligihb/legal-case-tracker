@@ -92,6 +92,24 @@ export type CondominiumFitStatus =
 
 export type MilestoneStatus = 'done' | 'in_progress' | 'upcoming';
 
+export type CustomFieldType = 'text' | 'date' | 'boolean' | 'reminder';
+
+export type CustomFieldScope = 'case' | 'category' | 'all';
+
+export interface CaseCustomField {
+  id: string;
+  field_key: string; // מזהה משותף להחלה גורפת על קטגוריה או על כלל התיקים
+  label: string; // שם שדה המעקב או התזכורת
+  field_type: CustomFieldType; // 'text' = טקסט, 'date' = תאריך, 'boolean' = כן/לא, 'reminder' = תזכורת עם מועד
+  value: string | boolean; // ערך השדה
+  due_date?: string | null; // YYYY-MM-DD עבור תזכורת עם מועד או שדה תאריך
+  is_done?: boolean; // האם התזכורת בוצעה
+  scope: CustomFieldScope; // 'case' | 'category' | 'all'
+  category?: CaseCategory | null;
+  updated_by?: string;
+  updated_at?: string;
+}
+
 export interface CaseMilestone {
   id: string;
   title: string;
@@ -237,8 +255,25 @@ export interface CaseItem {
   transfer_process_stage?: string; // שלב בחינה וביצוע העברת זכויות
   new_buyer_certificate_issued?: boolean; // הפקת אישור זכויות על שם הקונה החדש
 
+  // 5. שדות מעקב ותזכורות מותאמים אישית (עם תמיכה בהחלה גורפת ועריכה מהירה Inline)
+  custom_fields?: CaseCustomField[];
+  stage_data?: Record<string, unknown>; // נתוני שלבים גמישים (JSONB)
+
+  // 6. ארכיון חכם (הושלם / ארכיון)
+  is_archived?: boolean;
+  archived_at?: string | null;
+
   last_modified_by?: string;
   updated_at: string; // ISO string
+}
+
+export interface FullSystemBackup {
+  version: string;
+  exported_at: string;
+  cases: CaseItem[];
+  logs: CaseLog[];
+  municipalities_settings: MunicipalitySetting[];
+  system_users?: SystemUserAccount[];
 }
 
 export interface CaseLog {
