@@ -1,5 +1,24 @@
 export type CaseCategory = 'גבייה' | 'חדל"פ' | 'חברות' | 'חברה משכנת';
 
+export type CaseDistrict =
+  | 'מרכז'
+  | 'תל אביב'
+  | 'חיפה'
+  | 'צפון'
+  | 'ירושלים'
+  | 'דרום'
+  | 'כללי';
+
+export const CASE_DISTRICTS: CaseDistrict[] = [
+  'מרכז',
+  'תל אביב',
+  'חיפה',
+  'צפון',
+  'ירושלים',
+  'דרום',
+  'כללי',
+];
+
 export type CaseTag =
   | 'חברה משכנת'
   | 'עיזבון'
@@ -172,6 +191,7 @@ export interface CaseItem {
   case_number: string;
   gush_helka?: string; // גוש / חלקה / תת-חלקה (להעתקה מהירה וזיהוי נכס)
   category: CaseCategory;
+  district?: CaseDistrict; // מחוז (מרכז, תל אביב, חיפה, צפון, ירושלים, דרום, כללי)
   current_stage?: string;
   municipality?: string | null;
   tags: CaseTag[];

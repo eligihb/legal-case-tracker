@@ -48,6 +48,9 @@ CREATE TABLE IF NOT EXISTS public.cases (
     category TEXT NOT NULL CHECK (
         category IN ('גבייה', 'חדל"פ', 'חברות', 'חברה משכנת')
     ),
+    district TEXT NOT NULL DEFAULT 'מרכז' CHECK (
+        district IN ('מרכז', 'תל אביב', 'חיפה', 'צפון', 'ירושלים', 'דרום', 'כללי')
+    ),
     current_stage TEXT NOT NULL DEFAULT 'פתיחת תיק ובדיקות מקדמיות',
     municipality TEXT,                                                   -- שם עירייה / רשות מקומית
     tags TEXT[] NOT NULL DEFAULT '{}',
@@ -217,6 +220,7 @@ CREATE TABLE IF NOT EXISTS public.cases (
 -- ============================================================================
 -- מיגרציה בטוחה (Non-Destructive Safe Migration) לטבלאות קיימות ללא דריסת נתונים
 -- ============================================================================
+ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS district TEXT NOT NULL DEFAULT 'מרכז';
 ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS custom_fields JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS stage_data JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS milestones JSONB NOT NULL DEFAULT '[]'::jsonb;

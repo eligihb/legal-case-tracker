@@ -8,6 +8,7 @@ import {
 import {
   CaseCategory,
   CaseCustomField,
+  CaseDistrict,
   CaseItem,
   CaseLog,
   CustomFieldScope,
@@ -187,6 +188,44 @@ export function signOutDemo(): void {
   }
 }
 
+function inferDefaultDistrict(raw: Partial<CaseItem>): CaseDistrict {
+  if (raw.district) return raw.district;
+  const text = `${raw.municipality || ''} ${raw.debtor_name || ''} ${
+    raw.housing_project_name || ''
+  } ${raw.notes || ''}`;
+  if (text.includes('תל אביב') || text.includes('רמת גן') || text.includes('גבעתיים'))
+    return 'תל אביב';
+  if (text.includes('חיפה') || text.includes('קריות') || text.includes('נשר'))
+    return 'חיפה';
+  if (
+    text.includes('צפון') ||
+    text.includes('טבריה') ||
+    text.includes('נצרת') ||
+    text.includes('עפולה') ||
+    text.includes('נהריה')
+  )
+    return 'צפון';
+  if (text.includes('ירושלים') || text.includes('בית שמש')) return 'ירושלים';
+  if (
+    text.includes('באר שבע') ||
+    text.includes('דרום') ||
+    text.includes('אשדוד') ||
+    text.includes('אשקלון') ||
+    text.includes('אילת')
+  )
+    return 'דרום';
+  if (
+    text.includes('נתניה') ||
+    text.includes('ראשון לציון') ||
+    text.includes('פתח תקווה') ||
+    text.includes('חולון') ||
+    text.includes('רחובות') ||
+    text.includes('כפר סבא')
+  )
+    return 'מרכז';
+  return 'מרכז';
+}
+
 // ============================================================================
 // פונקציית מיגרציה בטוחה (Safe Merge / Non-Destructive Normalization):
 // לעולם אינה דורסת או מאפסת שדות קיימים בתיק — רק מוסיפה שדות ברירת מחדל חסרים
@@ -199,6 +238,7 @@ export function safeNormalizeCaseItem(raw: Partial<CaseItem>): CaseItem {
     case_number: raw.case_number ?? '',
     gush_helka: raw.gush_helka ?? '',
     category: raw.category || 'גבייה',
+    district: inferDefaultDistrict(raw),
     current_stage: raw.current_stage ?? (raw.status || 'פתיחת תיק ובדיקות'),
     municipality: raw.municipality ?? null,
     tags: Array.isArray(raw.tags) ? raw.tags : [],
@@ -1070,5 +1110,39 @@ export function loadSampleDataSafeMerge(): {
     municipalities_settings: INITIAL_MUNICIPALITIES_SETTINGS,
   });
 }
+
+// החלה גורפת או פרטנית של שדה מחוז (District)
+export async function bulkApplyDistrictToCases(params: {
+  district: CaseDistrict;
+  scope: 'case' | 'category' | 'all' | 'ids';
+  target_case_id?: string;
+  target_category?: CaseCategory;
+  target_ids?: string[];
+}): Promise<CaseItem[]> {
+  const user = getCurrentUserSession();
+  const now = new Date().toISOString();
+  const cases = getLocalCases();
+  const idSet = new Set(params.target_ids || []);
+
+  const updatedCases = cases.map((c) => {
+    const match =
+      params.scope === 'all' ||
+      (params.scope === 'category' && c.category === params.target_category) ||
+      (params.scope === 'case' && c.id === params.target_case_id) ||
+      (params.scope === 'ids' && idSet.has(c.id));
+
+    if (!match) return c;
+    return {
+      ...c,
+      district: params.district,
+      last_modified_by: user.displayName,
+      updated_at: now,
+    };
+  });
+
+  saveLocalCases(updatedCases);
+  return updatedCases;
+}
+
 
 

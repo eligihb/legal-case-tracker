@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -40,6 +40,13 @@ jobs:
 
       - name: Add .nojekyll
         run: touch ./out/.nojekyll
+
+      - name: Deploy static export to gh-pages branch
+        uses: peaceiris/actions-gh-pages@v4
+        continue-on-error: true
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./out
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

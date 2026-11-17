@@ -18,11 +18,16 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* אלמנט ההדפסה מוסתר במסך רגיל ומוצג אך ורק בהדפסה מחוץ ל-#app-shell */
+#print-root {
+  display: none;
+}
+
 .print-only {
   display: none;
 }
 
-/* טקסט הנחיה (Placeholder) באפור בהיר וחלש בכל שדות הרישום כדי למנוע בלבול עם טקסט שנכתב בפועל */
+/* טקסט הנחיה (Placeholder) באפור בהיר וחלש בכל שדות הרישום */
 input::placeholder,
 textarea::placeholder {
   color: #94a3b8 !important;
@@ -36,7 +41,7 @@ textarea:focus::placeholder {
   opacity: 0.55 !important;
 }
 
-/* התאמה מלאה למובייל — מניעת גלילה אופקית ומניעת זום אוטומטי בעת לחיצה על שדה כתיבה */
+/* התאמה מלאה למובייל */
 @media (max-width: 767px) {
   html,
   body {
@@ -69,7 +74,10 @@ textarea:focus::placeholder {
   background: #94a3b8;
 }
 
-/* עיצוב ייעודי להדפסה ישירה (window.print) */
+/* ============================================================================
+   תיקון מוחלט להדפסה (100% מהדפדפנים):
+   מבטל נעילת גובה, מסתיר את #app-shell ומציג אך ורק את #print-root בשחור-לבן חד
+   ============================================================================ */
 @media print {
   @page {
     size: A4 landscape;
@@ -78,41 +86,60 @@ textarea:focus::placeholder {
 
   html,
   body {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
     background: #ffffff !important;
     color: #000000 !important;
-    font-size: 14px !important;
-    line-height: 1.5 !important;
+    font-size: 13px !important;
+    line-height: 1.45 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  #app-shell {
+    display: none !important;
+  }
+
+  #print-root {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
     overflow: visible !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  #print-root table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    border: 1.5px solid #000000 !important;
+  }
+
+  #print-root th,
+  #print-root td {
+    border: 1px solid #000000 !important;
+    padding: 6px 8px !important;
+    color: #000000 !important;
+    background: #ffffff !important;
+    text-align: right !important;
+    vertical-align: top !important;
+  }
+
+  #print-root thead th {
+    background: #f1f5f9 !important;
+    font-weight: 800 !important;
+    border-bottom: 2px solid #000000 !important;
+  }
+
+  #print-root tr {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
 
   .no-print {
     display: none !important;
-  }
-
-  .print-only {
-    display: block !important;
-  }
-
-  /* כאשר חלון תיק פתוח, הדפס אך ורק את דף התיק המלא */
-  body.case-drawer-open .dashboard-main-print-area {
-    display: none !important;
-  }
-
-  body.case-drawer-open .case-drawer-print-wrapper {
-    position: static !important;
-    width: 100% !important;
-    max-width: 100% !important;
-    height: auto !important;
-    max-height: none !important;
-    overflow: visible !important;
-    box-shadow: none !important;
-    border: none !important;
-    background: #ffffff !important;
-  }
-
-  body.case-drawer-open .case-drawer-scroll-body {
-    overflow: visible !important;
-    height: auto !important;
-    max-height: none !important;
   }
 }

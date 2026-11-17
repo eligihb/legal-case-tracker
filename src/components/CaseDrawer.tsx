@@ -30,12 +30,14 @@ import {
 } from 'lucide-react';
 import {
   CASE_CATEGORIES,
+  CASE_DISTRICTS,
   CASE_STATUSES,
   CASE_TAGS,
   CATEGORY_LABELS,
   COMPANY_RESOLUTION_DECISIONS,
   CONDOMINIUM_FIT_STATUSES,
   CaseCategory,
+  CaseDistrict,
   CaseItem,
   CaseLog,
   CaseMilestone,
@@ -64,6 +66,7 @@ import {
 } from '@/types/database';
 import {
   addCaseLog,
+  bulkApplyDistrictToCases,
   deleteCaseItem,
   deleteCaseLog,
   fetchCaseLogs,
@@ -130,6 +133,7 @@ export default function CaseDrawer({
   const [caseNumber, setCaseNumber] = useState('');
   const [gushHelka, setGushHelka] = useState('');
   const [category, setCategory] = useState<CaseCategory>('גבייה');
+  const [district, setDistrict] = useState<CaseDistrict>('מרכז');
   const [currentStage, setCurrentStage] = useState('');
   const [municipality, setMunicipality] = useState('');
   const [tags, setTags] = useState<CaseTag[]>([]);
@@ -283,6 +287,7 @@ export default function CaseDrawer({
     setCaseNumber(caseItem.case_number || '');
     setGushHelka(caseItem.gush_helka || caseItem.property_details || '');
     setCategory(caseItem.category);
+    setDistrict(caseItem.district || 'מרכז');
     setCurrentStage(
       caseItem.current_stage ||
         (caseItem.category === 'גבייה'
@@ -439,6 +444,7 @@ export default function CaseDrawer({
         case_number: caseNumber.trim(),
         gush_helka: gushHelka.trim(),
         category,
+        district,
         current_stage: currentStage.trim(),
         municipality: municipality.trim() || null,
         tags,
@@ -537,6 +543,7 @@ export default function CaseDrawer({
     caseNumber,
     gushHelka,
     category,
+    district,
     currentStage,
     municipality,
     tags,
@@ -1523,6 +1530,45 @@ export default function CaseDrawer({
                       placeholder="גוש / חלקה..."
                       className="w-full p-2.5 text-[15px] rounded-xl border border-slate-300 focus:border-blue-600 outline-none font-bold"
                     />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-extrabold text-slate-700 mb-1 flex items-center justify-between">
+                      <span>מחוז (District)</span>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (
+                            window.confirm(
+                              `להחיל את מחוז "${district}" באופן גורף על כל התיקים בקטגוריית "${category}"?`
+                            )
+                          ) {
+                            const updatedList = await bulkApplyDistrictToCases({
+                              district,
+                              scope: 'category',
+                              target_category: category,
+                            });
+                            if (onAllCasesUpdated) onAllCasesUpdated(updatedList);
+                          }
+                        }}
+                        className="text-[11px] font-bold text-blue-700 hover:underline no-print"
+                        title="החל מחוז זה באופן גורף על כל התיקים בקטגוריה זו"
+                      >
+                        החל על כל {category}
+                      </button>
+                    </label>
+                    <select
+                      value={district}
+                      onChange={(e) =>
+                        setDistrict(e.target.value as CaseDistrict)
+                      }
+                      className="w-full p-2.5 text-[15px] rounded-xl border border-slate-300 bg-white font-extrabold text-slate-900 outline-none focus:border-blue-600"
+                    >
+                      {CASE_DISTRICTS.map((d) => (
+                        <option key={d} value={d}>
+                          מחוז {d}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
 
