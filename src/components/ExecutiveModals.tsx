@@ -27,6 +27,7 @@ import {
   RotateCcw,
   Settings,
   ShieldCheck,
+  Trash2,
   Truck,
   Unlock,
   Upload,
@@ -55,6 +56,7 @@ import {
 } from '@/lib/dateUtils';
 import {
   bulkApplyDistrictToCases,
+  clearAllCasesAndStartFresh,
   downloadFullSystemBackupJson,
   loadSampleDataSafeMerge,
   restoreFromBackupSafeMerge,
@@ -1917,14 +1919,14 @@ export function ExecutiveSettingsModal({
               />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
               <button
                 type="button"
                 onClick={handleLoadSampleDataSafe}
                 className="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-bold flex items-center justify-center gap-1.5 transition"
               >
                 <RefreshCw className="w-3.5 h-3.5 text-slate-600" />
-                <span>טען נתוני דוגמה (במיזוג בטוח)</span>
+                <span>טען נתוני דוגמה</span>
               </button>
 
               <button
@@ -1936,7 +1938,32 @@ export function ExecutiveSettingsModal({
                 className="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-bold flex items-center justify-center gap-1.5 transition"
               >
                 <Upload className="w-3.5 h-3.5 text-slate-600" />
-                <span>ייבוא תיקים מקובץ CSV</span>
+                <span>ייבוא מקובץ CSV</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      'האם למחוק את כל התיקים מהמאגר ולהתחיל מחדש מ-0 תיקים?'
+                    )
+                  ) {
+                    clearAllCasesAndStartFresh();
+                    onDataRestored({
+                      cases: [],
+                      muniSettings: [],
+                      users: [],
+                    });
+                    setStatusMessage(
+                      'כל התיקים נמחקו בהצלחה — המערכת ריקה ומוכנה לעבודה מחדש (0 תיקים).'
+                    );
+                  }
+                }}
+                className="p-2.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-800 border border-red-300 text-xs font-extrabold flex items-center justify-center gap-1.5 transition"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                <span>מחק הכל והתחל מ-0</span>
               </button>
             </div>
           </div>

@@ -4,6 +4,8 @@ import {
   INITIAL_SAMPLE_CASES,
   INITIAL_SAMPLE_LOGS,
   INITIAL_SYSTEM_USERS,
+  OPTIONAL_DEMO_CASES,
+  OPTIONAL_DEMO_LOGS,
 } from './sampleData';
 import {
   CaseCategory,
@@ -397,12 +399,24 @@ export function safeNormalizeCaseItem(raw: Partial<CaseItem>): CaseItem {
   };
 }
 
+const STORAGE_SAMPLE_PURGE_V7_1 = 'legal_fork_sample_purged_v7_1';
+
+function isBuiltInSampleCaseId(id?: string): boolean {
+  if (!id) return false;
+  return (
+    id.startsWith('11111111-1111-') ||
+    id.startsWith('22222222-2222-') ||
+    id.startsWith('33333333-3333-') ||
+    id.startsWith('44444444-4444-')
+  );
+}
+
 // ============================================================================
-// LocalStorage Helpers (עם מיגרציה בטוחה של תיקים קיימים ללא דריסת מידע)
+// LocalStorage Helpers (עם ניקוי אוטומטי של תיקי הדוגמה לבקשת המשתמש)
 // ============================================================================
 function getLocalCases(): CaseItem[] {
   if (typeof window === 'undefined') {
-    return INITIAL_SAMPLE_CASES.map((c) => safeNormalizeCaseItem(c));
+    return [];
   }
 
   let raw = localStorage.getItem(STORAGE_CASES_KEY);
@@ -418,31 +432,50 @@ function getLocalCases(): CaseItem[] {
     }
   }
 
+  const alreadyPurgedSamples =
+    localStorage.getItem(STORAGE_SAMPLE_PURGE_V7_1) === 'true';
+
   if (raw) {
     try {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        const normalized = parsed.map((c) => safeNormalizeCaseItem(c));
-        localStorage.setItem(STORAGE_CASES_KEY, JSON.stringify(normalized));
-        return normalized;
+      if (Array.isArray(parsed)) {
+        let list = parsed.map((c) => safeNormalizeCaseItem(c));
+        if (!alreadyPurgedSamples) {
+          list = list.filter((c) => !isBuiltInSampleCaseId(c.id));
+          localStorage.setItem(STORAGE_SAMPLE_PURGE_V7_1, 'true');
+          // ניקוי גם של תרשומות הדוגמה
+          const rawLogs = localStorage.getItem(STORAGE_LOGS_KEY);
+          if (rawLogs) {
+            try {
+              const parsedLogs = JSON.parse(rawLogs) as CaseLog[];
+              if (Array.isArray(parsedLogs)) {
+                const cleanedLogs = parsedLogs.filter(
+                  (l) => !isBuiltInSampleCaseId(l.case_id)
+                );
+                localStorage.setItem(
+                  STORAGE_LOGS_KEY,
+                  JSON.stringify(cleanedLogs)
+                );
+              }
+            } catch {
+              // ignore
+            }
+          }
+        }
+        localStorage.setItem(STORAGE_CASES_KEY, JSON.stringify(list));
+        return list;
       }
     } catch (err) {
       console.warn('Error parsing stored cases, preserving safety:', err);
     }
   }
 
-  // טעינת נתוני דוגמה אך ורק אם המאגר ריק לחלוטין (0 תיקים)
-  const initialNormalized = INITIAL_SAMPLE_CASES.map((c) =>
-    safeNormalizeCaseItem(c)
-  );
-  localStorage.setItem(STORAGE_CASES_KEY, JSON.stringify(initialNormalized));
+  localStorage.setItem(STORAGE_SAMPLE_PURGE_V7_1, 'true');
+  localStorage.setItem(STORAGE_CASES_KEY, JSON.stringify([]));
   if (!localStorage.getItem(STORAGE_LOGS_KEY)) {
-    localStorage.setItem(
-      STORAGE_LOGS_KEY,
-      JSON.stringify(INITIAL_SAMPLE_LOGS)
-    );
+    localStorage.setItem(STORAGE_LOGS_KEY, JSON.stringify([]));
   }
-  return initialNormalized;
+  return [];
 }
 
 function saveLocalCases(cases: CaseItem[]): void {
@@ -1160,7 +1193,7 @@ export function restoreFromBackupSafeMerge(
   };
 }
 
-// טעינה יזומה ובטוחה של נתוני דוגמה (ממזגת את תיקי הדוגמה מבלי למחוק תיקים שהמשתמש יצר!)
+// טעינה יזומה ובטוחה של נתוני דוגמה (רק בלחיצה יזומה של המשתמש בהגדרות)
 export function loadSampleDataSafeMerge(): {
   cases: CaseItem[];
   logs: CaseLog[];
@@ -1172,10 +1205,23 @@ export function loadSampleDataSafeMerge(): {
   return restoreFromBackupSafeMerge({
     version: APP_VERSION,
     exported_at: new Date().toISOString(),
-    cases: INITIAL_SAMPLE_CASES,
-    logs: INITIAL_SAMPLE_LOGS,
+    cases: OPTIONAL_DEMO_CASES,
+    logs: OPTIONAL_DEMO_LOGS,
     municipalities_settings: INITIAL_MUNICIPALITIES_SETTINGS,
   });
+}
+
+// מחיקת כל התיקים והתרשומות להתחלה מחדש (0 תיקים)
+export function clearAllCasesAndStartFresh(): {
+  cases: CaseItem[];
+  logs: CaseLog[];
+} {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(STORAGE_CASES_KEY, JSON.stringify([]));
+    localStorage.setItem(STORAGE_LOGS_KEY, JSON.stringify([]));
+    localStorage.setItem(STORAGE_SAMPLE_PURGE_V7_1, 'true');
+  }
+  return { cases: [], logs: [] };
 }
 
 // החלה גורפת או פרטנית של שדה מחוז (District)

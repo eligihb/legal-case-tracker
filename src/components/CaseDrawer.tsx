@@ -87,6 +87,13 @@ import CopyButton from './CopyButton';
 import { InlineCustomFieldsList } from './CustomFieldsManager';
 
 export type DrawerTab = 'overview' | 'tasks' | 'logs';
+export type CasePrintZone =
+  | 'summary'
+  | 'active_tab'
+  | 'overview'
+  | 'tasks'
+  | 'logs'
+  | 'full';
 
 interface CaseDrawerProps {
   caseItem: CaseItem | null;
@@ -96,6 +103,12 @@ interface CaseDrawerProps {
   onAllCasesUpdated?: (updatedCases: CaseItem[]) => void;
   onOpenAddCustomField?: (targetCase: CaseItem) => void;
   onToggleArchive?: (caseItem: CaseItem) => void;
+  onPrintCaseZone?: (
+    caseData: CaseItem,
+    logsData: CaseLog[],
+    zone: CasePrintZone,
+    activeTab: DrawerTab
+  ) => void;
   onCaseDeleted: (id: string) => void;
   municipalitiesSettings: MunicipalitySetting[];
   currentUser: UserSession;
@@ -110,6 +123,7 @@ export default function CaseDrawer({
   onAllCasesUpdated,
   onOpenAddCustomField,
   onToggleArchive,
+  onPrintCaseZone,
   onCaseDeleted,
   municipalitiesSettings,
   currentUser,
@@ -117,6 +131,8 @@ export default function CaseDrawer({
 }: CaseDrawerProps) {
   const isAdmin = currentUser.role === 'admin';
   const [activeTab, setActiveTab] = useState<DrawerTab>('overview');
+  const [selectedPrintZone, setSelectedPrintZone] =
+    useState<CasePrintZone>('active_tab');
   const [rshuSubTab, setRshuSubTab] = useState<'pre_suit' | 'execution'>(
     'pre_suit'
   );
@@ -1234,15 +1250,139 @@ export default function CaseDrawer({
               </button>
             )}
 
-            <button
-              type="button"
-              onClick={() => window.print()}
-              className="px-3.5 py-2 rounded-xl bg-white/15 hover:bg-white/25 text-white text-sm font-extrabold flex items-center gap-1.5 border border-white/20 transition"
-              title="הדפסה ישירה של כרטיס התיק"
-            >
-              <Printer className="w-4 h-4" />
-              הדפסה ישירה
-            </button>
+            {/* בחירת אזור הדפסה ספציפי בתיק (מסך נוכחי / תמצית נתונים עיקריים / משימות / תרשומות / תיק מלא) */}
+            <div className="inline-flex items-center rounded-xl bg-white/15 border border-white/25 overflow-hidden">
+              <select
+                value={selectedPrintZone}
+                onChange={(e) =>
+                  setSelectedPrintZone(e.target.value as CasePrintZone)
+                }
+                aria-label="בחר אזור הדפסה בתיק"
+                className="px-2.5 py-2 bg-slate-900/80 text-white text-xs font-extrabold outline-none cursor-pointer border-l border-white/20"
+              >
+                <option value="active_tab">
+                  🖨️ הדפס מסך נוכחי (
+                  {activeTab === 'overview'
+                    ? 'מבט על ונתונים'
+                    : activeTab === 'tasks'
+                    ? 'משימות וזמנים'
+                    : 'תרשומות וארכות'}
+                  )
+                </option>
+                <option value="summary">
+                  📋 תמצית תיק (נתונים עיקריים בלבד)
+                </option>
+                <option value="overview">
+                  🏛️ מסך כללי + כל שדות התחום
+                </option>
+                <option value="tasks">
+                  ✅ צ&apos;ק-ליסט משימות וזמנים בלבד
+                </option>
+                <option value="logs">
+                  💬 יומן תרשומות וארכות בלבד
+                </option>
+                <option value="full">
+                  📑 דוח תיק מלא (כל האזורים יחד)
+                </option>
+              </select>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const snapshot: CaseItem = {
+                    ...caseItem,
+                    debtor_name: debtorName,
+                    id_or_hp: idOrHp,
+                    case_number: caseNumber,
+                    gush_helka: gushHelka,
+                    category,
+                    district,
+                    current_stage: currentStage,
+                    municipality: municipality || null,
+                    tags,
+                    status,
+                    notes,
+                    next_action_type: nextActionType,
+                    next_action_description: nextActionDescription,
+                    next_due_date: nextDueDate || null,
+                    extensions_count: extensionsCount,
+                    is_hearing_postponed: isHearingPostponed,
+                    postponed_reason: postponedReason,
+                    trustee_report_due_date: trusteeReportDueDate || null,
+                    debt_years: debtYears,
+                    principal_amount: principalAmount,
+                    interest_amount: interestAmount,
+                    expenses_amount: expensesAmount,
+                    legal_fee_amount: legalFeeAmount,
+                    gachlat_status: gachlatStatus,
+                    has_property: hasProperty,
+                    property_details: propertyDetails,
+                    warning_letter_sent_date: warningLetterSentDate || null,
+                    delivery_confirmation_date:
+                      deliveryConfirmationDate || null,
+                    execution_target_date: executionTargetDate || null,
+                    execution_proceedings_notes: executionProceedingsNotes,
+                    monthly_reductions: monthlyReductions,
+                    milestones,
+                    is_old_debt_writeoff: isOldDebtWriteoff,
+                    writeoff_classification: writeoffClassification,
+                    legal_opinion_summary: legalOpinionSummary,
+                    is_material_creditor: isMaterialCreditor,
+                    insolvency_debtor_type: insolvencyDebtorType,
+                    trustee_name_and_contact: trusteeNameAndContact,
+                    debt_claim_deadline: debtClaimDeadline || null,
+                    debt_claim_submitted: debtClaimSubmitted,
+                    debt_claim_amount: debtClaimAmount,
+                    creditor_responses_notes: creditorResponsesNotes,
+                    new_debts_tracking: newDebtsTracking,
+                    self_undertaking_deposited: selfUndertakingDeposited,
+                    self_undertaking_date: selfUndertakingDate || null,
+                    insurance_and_assets_letters_status:
+                      insuranceAndAssetsLettersStatus,
+                    representative_contact_details:
+                      representativeContactDetails,
+                    investigating_trustee_name: investigatingTrusteeName,
+                    investigation_scheduled_date:
+                      investigationScheduledDate || null,
+                    required_documents_checklist: requiredDocumentsChecklist,
+                    investigation_outcome: investigationOutcome,
+                    missing_documents_details: missingDocumentsDetails,
+                    trustee_findings_summary: trusteeFindingsSummary,
+                    company_resolution_decision: companyResolutionDecision,
+                    housing_project_name: housingProjectName,
+                    liquidators_sale_approval: liquidatorsSaleApproval,
+                    physical_files_location: physicalFilesLocation,
+                    rights_certificate_issued: rightsCertificateIssued,
+                    surveyor_name: surveyorName,
+                    tazar_status: tazarStatus,
+                    parking_tazar_handled: parkingTazarHandled,
+                    parking_tazar_notes: parkingTazarNotes,
+                    condominium_registration_fit: condominiumRegistrationFit,
+                    invoices_court_control: invoicesCourtControl,
+                    seller_buyer_names: sellerBuyerNames,
+                    transfer_signing_docs_complete: transferSigningDocsComplete,
+                    transfer_liquidator_approved: transferLiquidatorApproved,
+                    transfer_process_stage: transferProcessStage,
+                    new_buyer_certificate_issued: newBuyerCertificateIssued,
+                  };
+                  if (onPrintCaseZone) {
+                    onPrintCaseZone(
+                      snapshot,
+                      logs,
+                      selectedPrintZone,
+                      activeTab
+                    );
+                  } else {
+                    window.print();
+                  }
+                }}
+                className="px-3.5 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs sm:text-sm font-extrabold flex items-center gap-1.5 transition"
+                title="הדפס את האזור שנבחר בתיק"
+              >
+                <Printer className="w-4 h-4" />
+                <span>הדפס</span>
+              </button>
+            </div>
 
             <button
               type="button"

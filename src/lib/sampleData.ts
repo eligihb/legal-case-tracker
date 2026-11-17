@@ -124,7 +124,10 @@ export const INITIAL_MUNICIPALITIES_SETTINGS: MunicipalitySetting[] = [
   },
 ];
 
-export const INITIAL_SAMPLE_CASES: CaseItem[] = [
+export const INITIAL_SAMPLE_CASES: CaseItem[] = [];
+export const INITIAL_SAMPLE_LOGS: CaseLog[] = [];
+
+export const OPTIONAL_DEMO_CASES: CaseItem[] = [
   // ==========================================================================
   // תחום 1: תיקי רשויות (גבייה והוצל"פ) — 4 תיקי דוגמה מקיפים
   // ==========================================================================
@@ -1449,7 +1452,7 @@ export const INITIAL_SAMPLE_CASES: CaseItem[] = [
   },
 ];
 
-export const INITIAL_SAMPLE_LOGS: CaseLog[] = [
+export const OPTIONAL_DEMO_LOGS: CaseLog[] = [
   {
     id: 'log-1001',
     case_id: '11111111-1111-4111-8111-111111111101',

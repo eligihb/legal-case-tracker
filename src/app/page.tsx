@@ -41,6 +41,7 @@ import {
   CaseCategory,
   CaseDistrict,
   CaseItem,
+  CaseLog,
   CaseStatus,
   MunicipalitySetting,
   NEXT_ACTION_TYPES,
@@ -68,10 +69,11 @@ import {
   calculateTotalDebt,
   formatCurrencyILS,
   formatDateHe,
+  formatDateTimeHe,
   getDueCountdown,
   isDeliveryOver30DaysAlert,
 } from '@/lib/dateUtils';
-import CaseDrawer, { DrawerTab } from '@/components/CaseDrawer';
+import CaseDrawer, { CasePrintZone, DrawerTab } from '@/components/CaseDrawer';
 import NewCaseModal from '@/components/NewCaseModal';
 import CsvImportModal from '@/components/CsvImportModal';
 import MunicipalitiesSettingsModal from '@/components/MunicipalitiesSettingsModal';
@@ -142,6 +144,12 @@ export default function DashboardPage() {
   const [customPrintList, setCustomPrintList] = useState<{
     cases: CaseItem[];
     title: string;
+  } | null>(null);
+  const [casePrintContext, setCasePrintContext] = useState<{
+    caseData: CaseItem;
+    logsData: CaseLog[];
+    zone: CasePrintZone;
+    activeTab: DrawerTab;
   } | null>(null);
 
   const [localMode, setLocalMode] = useState(true);
@@ -1022,6 +1030,17 @@ export default function DashboardPage() {
               >
                 <Plus className="w-4 h-4" />
                 <span>+ תיק חדש</span>
+              </button>
+
+              {/* הדפסת המסך הנוכחי */}
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white border border-slate-600 text-xs sm:text-sm font-extrabold flex items-center gap-1.5 transition"
+                title="הדפס את המסך הנוכחי שאתה רואה כעת"
+              >
+                <Printer className="w-4 h-4 text-sky-400 shrink-0" />
+                <span>הדפס מסך זה</span>
               </button>
 
               {/* מסך תפעול והרשאות */}
@@ -2345,6 +2364,13 @@ export default function DashboardPage() {
           }}
           onOpenAddCustomField={(target) => handleOpenCustomFieldModal(target)}
           onToggleArchive={(targetCase) => handleToggleArchive(null, targetCase)}
+          onPrintCaseZone={(caseData, logsData, zone, activeTab) => {
+            setCasePrintContext({ caseData, logsData, zone, activeTab });
+            setTimeout(() => {
+              window.print();
+              setTimeout(() => setCasePrintContext(null), 500);
+            }, 100);
+          }}
           onCaseDeleted={(deletedId) => {
             setCases((prev) => prev.filter((c) => c.id !== deletedId));
             setSelectedCase(null);
@@ -2416,203 +2442,563 @@ export default function DashboardPage() {
       </div>
 
       {/* ==================================================================== */}
-      {/* #print-root: יושב מחוץ ל-#app-shell ומבטיח הדפסה מלאה ב-100% מהדפדפנים! */}
+      {/* #print-root: יושב מחוץ ל-#app-shell ומדפיס את האזור הספציפי בתיק או את המסך הנוכחי! */}
       {/* ==================================================================== */}
       <div id="print-root" dir="rtl">
-        <div
-          style={{
-            borderBottom: '2px solid #000',
-            paddingBottom: '10px',
-            marginBottom: '14px',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'flex-start',
-          }}
-        >
-          <div>
-            <h1 style={{ fontSize: '20px', fontWeight: 800, margin: 0 }}>
-              מערכת ניהול תיקים משפטיים (גרסה {APP_VERSION}) —{' '}
-              {selectedCase && !customPrintList
-                ? `כרטיס תיק: ${selectedCase.debtor_name}`
-                : printTitleToRender}
-            </h1>
-            <p style={{ fontSize: '12px', margin: '4px 0 0 0' }}>
-              הופק ע&quot;י: {currentUser.displayName} ({currentUser.role}) •{' '}
-              {selectedCase && !customPrintList
-                ? `[מחוז: ${selectedCase.district || 'מרכז'}] [שלב: ${classifyWorkflowStage(
-                    selectedCase
-                  )}] [סטטוס: ${selectedCase.status}]`
-                : `סה"כ תיקים בדוח: ${printCasesToRender.length}`}
-            </p>
-          </div>
-          <div style={{ fontSize: '12px', fontWeight: 700, textAlign: 'left' }}>
-            תאריך הפקה: {new Date().toLocaleDateString('he-IL')}{' '}
-            {new Date().toLocaleTimeString('he-IL', {
-              hour: '2-digit',
-              minute: '2-digit',
-            })}
-          </div>
-        </div>
+        {(() => {
+          const targetCase = casePrintContext?.caseData || selectedCase;
+          const targetLogs = casePrintContext?.logsData || [];
+          const rawZone: CasePrintZone = casePrintContext?.zone || 'full';
+          const effectiveZone =
+            rawZone === 'active_tab'
+              ? casePrintContext?.activeTab || drawerInitialTab
+              : rawZone;
 
-        {selectedCase && !customPrintList ? (
-          <div>
-            <table style={{ marginBottom: '14px' }}>
-              <thead>
-                <tr>
-                  <th>שם חייב / תיק</th>
-                  <th>ת&quot;ז / ח&quot;פ</th>
-                  <th>מספר תיק</th>
-                  <th>קטגוריה ומחוז</th>
-                  <th>שלב וסטטוס</th>
-                  <th>פעולה הבאה ומועד יעד</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>
-                    <strong>{selectedCase.debtor_name}</strong>
-                  </td>
-                  <td>{selectedCase.id_or_hp || '—'}</td>
-                  <td>{selectedCase.case_number || '—'}</td>
-                  <td>
-                    [{selectedCase.category}] [מחוז:{' '}
-                    {selectedCase.district || 'מרכז'}]
-                  </td>
-                  <td>
-                    [שלב:{' '}
-                    {selectedCase.current_stage ||
-                      classifyWorkflowStage(selectedCase)}
-                    ] [סטטוס: {selectedCase.status}]
-                  </td>
-                  <td>
-                    [{selectedCase.next_action_type}]{' '}
-                    {selectedCase.next_action_description || ''} (
-                    {selectedCase.next_due_date
-                      ? formatDateHe(selectedCase.next_due_date)
-                      : 'ללא יעד'}
-                    )
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+          const zoneLabelMap: Record<string, string> = {
+            summary: 'תמצית תיק — נתונים עיקריים בלבד',
+            overview: 'מסך כללי ושדות התחום',
+            tasks: 'צ׳ק-ליסט משימות ומדידת זמנים',
+            logs: 'יומן תרשומות שיחה, החלטות וארכות',
+            full: 'דוח תיק מלא (כל האזורים)',
+          };
 
-            {selectedCase.notes && (
+          const showCoreSummary =
+            effectiveZone === 'summary' ||
+            effectiveZone === 'overview' ||
+            effectiveZone === 'full';
+          const showDetailedDomainFields =
+            effectiveZone === 'overview' || effectiveZone === 'full';
+          const showTasksZone =
+            effectiveZone === 'tasks' || effectiveZone === 'full';
+          const showLogsZone =
+            effectiveZone === 'logs' || effectiveZone === 'full';
+
+          return (
+            <>
               <div
                 style={{
-                  border: '1px solid #000',
-                  padding: '8px',
-                  marginBottom: '12px',
+                  borderBottom: '2px solid #000',
+                  paddingBottom: '10px',
+                  marginBottom: '14px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'flex-start',
                 }}
               >
-                <strong>הערות ליבה ותקציר התיק: </strong>
-                {selectedCase.notes}
-              </div>
-            )}
-
-            {(selectedCase.milestones || []).length > 0 && (
-              <div>
-                <h3
-                  style={{ fontSize: '14px', fontWeight: 800, margin: '8px 0' }}
+                <div>
+                  <h1 style={{ fontSize: '20px', fontWeight: 800, margin: 0 }}>
+                    מערכת ניהול תיקים משפטיים (גרסה {APP_VERSION}) —{' '}
+                    {targetCase && !customPrintList
+                      ? `תיק: ${targetCase.debtor_name} (${
+                          zoneLabelMap[effectiveZone] || 'דוח תיק'
+                        })`
+                      : printTitleToRender}
+                  </h1>
+                  <p style={{ fontSize: '12px', margin: '4px 0 0 0' }}>
+                    הופק ע&quot;י: {currentUser.displayName} ({currentUser.role})
+                    •{' '}
+                    {targetCase && !customPrintList
+                      ? `[קטגוריה: ${targetCase.category}] [מחוז: ${
+                          targetCase.district || 'מרכז'
+                        }] [שלב: ${classifyWorkflowStage(
+                          targetCase
+                        )}] [סטטוס: ${targetCase.status}]`
+                      : `סה"כ תיקים בדוח: ${printCasesToRender.length}`}
+                  </p>
+                </div>
+                <div
+                  style={{
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    textAlign: 'left',
+                  }}
                 >
-                  משימות ושלבי ביצוע בתיק ({selectedCase.milestones?.length}):
-                </h3>
+                  תאריך הפקה: {new Date().toLocaleDateString('he-IL')}{' '}
+                  {new Date().toLocaleTimeString('he-IL', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </div>
+              </div>
+
+              {/* ========================================================== */}
+              {/* א. הדפסת אזור נבחר מתוך תיק פתוח                           */}
+              {/* ========================================================== */}
+              {targetCase && !customPrintList ? (
+                <div>
+                  {/* כותרת זיהוי התיק (מוצגת בכל אזור הדפסה של התיק) */}
+                  <table style={{ marginBottom: '12px' }}>
+                    <thead>
+                      <tr>
+                        <th>שם חייב / תיק</th>
+                        <th>ת&quot;ז / ח&quot;פ</th>
+                        <th>מספר תיק וגוש/חלקה</th>
+                        <th>קטגוריה ומחוז</th>
+                        <th>שלב וסטטוס</th>
+                        <th>פעולה הבאה ומועד יעד</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td>
+                          <strong>{targetCase.debtor_name}</strong>
+                        </td>
+                        <td>{targetCase.id_or_hp || '—'}</td>
+                        <td>
+                          <div>תיק: {targetCase.case_number || '—'}</div>
+                          {targetCase.gush_helka && (
+                            <div>גוש/חלקה: {targetCase.gush_helka}</div>
+                          )}
+                        </td>
+                        <td>
+                          [{targetCase.category}] [מחוז:{' '}
+                          {targetCase.district || 'מרכז'}]
+                        </td>
+                        <td>
+                          [שלב:{' '}
+                          {targetCase.current_stage ||
+                            classifyWorkflowStage(targetCase)}
+                          ] [סטטוס: {targetCase.status}]
+                        </td>
+                        <td>
+                          [{targetCase.next_action_type}]{' '}
+                          {targetCase.next_action_description || ''} (
+                          {targetCase.next_due_date
+                            ? formatDateHe(targetCase.next_due_date)
+                            : 'ללא יעד'}
+                          )
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+
+                  {/* אזור 1: נתונים עיקריים ושדות התחום */}
+                  {showCoreSummary && (
+                    <div style={{ marginBottom: '14px' }}>
+                      <h3
+                        style={{
+                          fontSize: '14px',
+                          fontWeight: 800,
+                          margin: '8px 0',
+                        }}
+                      >
+                        נתונים עיקריים בתיק ({targetCase.category}):
+                      </h3>
+                      <table>
+                        <tbody>
+                          {targetCase.category === 'גבייה' && (
+                            <tr>
+                              <td>
+                                <strong>רשות מקומית:</strong>{' '}
+                                {targetCase.municipality || '—'}
+                              </td>
+                              <td>
+                                <strong>שנות חוב:</strong>{' '}
+                                {targetCase.debt_years || '—'}
+                              </td>
+                              <td>
+                                <strong>קרן + ריבית + הוצאות + שכ&quot;ט:</strong>{' '}
+                                {formatCurrencyILS(
+                                  calculateTotalDebt(targetCase)
+                                )}
+                              </td>
+                              <td>
+                                <strong>גח&quot;לת / מסירה:</strong>{' '}
+                                {targetCase.gachlat_status || '—'} |{' '}
+                                {classifyDeliveryStatus(targetCase)}
+                              </td>
+                            </tr>
+                          )}
+
+                          {targetCase.category === 'חדל"פ' && (
+                            <tr>
+                              <td>
+                                <strong>נושה מהותי:</strong>{' '}
+                                {targetCase.is_material_creditor ? 'כן ★' : 'לא'}
+                              </td>
+                              <td>
+                                <strong>סוג חייב:</strong>{' '}
+                                {targetCase.insolvency_debtor_type ||
+                                  'חייב יחיד'}
+                              </td>
+                              <td>
+                                <strong>נאמן / מפרק:</strong>{' '}
+                                {targetCase.trustee_name_and_contact || '—'}
+                              </td>
+                              <td>
+                                <strong>תביעת חוב:</strong>{' '}
+                                {formatCurrencyILS(
+                                  targetCase.debt_claim_amount || 0
+                                )}{' '}
+                                (
+                                {targetCase.debt_claim_submitted
+                                  ? 'הוגשה ✓'
+                                  : 'טרם הוגשה'}
+                                )
+                              </td>
+                            </tr>
+                          )}
+
+                          {targetCase.category === 'חברות' && (
+                            <tr>
+                              <td>
+                                <strong>התחייבות עצמית 100א׳:</strong>{' '}
+                                {targetCase.self_undertaking_deposited
+                                  ? 'הופקדה ✓'
+                                  : 'טרם הופקדה'}
+                              </td>
+                              <td>
+                                <strong>תוצאות חקירה:</strong>{' '}
+                                {targetCase.investigation_outcome || 'טרם נחקר'}
+                              </td>
+                              <td>
+                                <strong>הכרעה בתיק:</strong>{' '}
+                                {targetCase.company_resolution_decision ||
+                                  'טרם הוכרע'}
+                              </td>
+                              <td>
+                                <strong>ממצאי נאמן:</strong>{' '}
+                                {targetCase.trustee_findings_summary || '—'}
+                              </td>
+                            </tr>
+                          )}
+
+                          {targetCase.category === 'חברה משכנת' && (
+                            <tr>
+                              <td>
+                                <strong>שם פרויקט:</strong>{' '}
+                                {targetCase.housing_project_name || '—'}
+                              </td>
+                              <td>
+                                <strong>התאמה לבית משותף:</strong>{' '}
+                                {targetCase.condominium_registration_fit ||
+                                  'בבדיקה'}
+                              </td>
+                              <td>
+                                <strong>העברת זכויות:</strong>{' '}
+                                {targetCase.seller_buyer_names || '—'}
+                              </td>
+                              <td>
+                                <strong>אישור זכויות לקונה:</strong>{' '}
+                                {targetCase.new_buyer_certificate_issued
+                                  ? 'הופק ✓'
+                                  : 'טרם הופק'}
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+
+                      {targetCase.notes && (
+                        <div
+                          style={{
+                            border: '1px solid #000',
+                            padding: '8px',
+                            marginTop: '8px',
+                          }}
+                        >
+                          <strong>הערות ליבה ותקציר התיק: </strong>
+                          {targetCase.notes}
+                        </div>
+                      )}
+
+                      {showDetailedDomainFields &&
+                        (targetCase.custom_fields || []).length > 0 && (
+                          <div style={{ marginTop: '10px' }}>
+                            <strong>שדות מעקב ותזכורות מותאמים אישית:</strong>
+                            <table>
+                              <thead>
+                                <tr>
+                                  <th>שם השדה / התזכורת</th>
+                                  <th>ערך / סטטוס</th>
+                                  <th>מועד יעד</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {(targetCase.custom_fields || []).map((cf) => (
+                                  <tr key={cf.id}>
+                                    <td>{cf.label}</td>
+                                    <td>
+                                      {cf.field_type === 'boolean'
+                                        ? cf.value
+                                          ? 'כן ✓'
+                                          : 'לא'
+                                        : String(cf.value || '—')}
+                                    </td>
+                                    <td>
+                                      {cf.due_date
+                                        ? formatDateHe(cf.due_date)
+                                        : '—'}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                    </div>
+                  )}
+
+                  {/* אזור 2: צ'ק-ליסט משימות ומדידת זמנים */}
+                  {showTasksZone && (
+                    <div style={{ marginBottom: '14px' }}>
+                      <h3
+                        style={{
+                          fontSize: '14px',
+                          fontWeight: 800,
+                          margin: '8px 0',
+                        }}
+                      >
+                        צ&apos;ק-ליסט משימות ומדידת זמנים בתיק (
+                        {(targetCase.milestones || []).length} משימות):
+                      </h3>
+                      {(targetCase.milestones || []).length === 0 ? (
+                        <p>אין משימות מוגדרות בתיק זה.</p>
+                      ) : (
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>#</th>
+                              <th>תיאור המשימה / השלב</th>
+                              <th>סטטוס</th>
+                              <th>דחיפות</th>
+                              <th>תאריכי ביצוע</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(targetCase.milestones || []).map((m, idx) => (
+                              <tr key={m.id}>
+                                <td>{idx + 1}</td>
+                                <td>{m.title}</td>
+                                <td>
+                                  {m.status === 'done'
+                                    ? 'מה נעשה ✓'
+                                    : m.status === 'in_progress'
+                                    ? 'בתהליך כעת ⏳'
+                                    : 'יבוצע בהמשך ➔'}
+                                </td>
+                                <td>{m.urgency || 'רגילה'}</td>
+                                <td>
+                                  {formatDateHe(m.started_at)}{' '}
+                                  {m.completed_at
+                                    ? `➔ ${formatDateHe(m.completed_at)}`
+                                    : ''}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  )}
+
+                  {/* אזור 3: יומן תרשומות שיחה, הערות וארכות */}
+                  {showLogsZone && (
+                    <div>
+                      <h3
+                        style={{
+                          fontSize: '14px',
+                          fontWeight: 800,
+                          margin: '8px 0',
+                        }}
+                      >
+                        יומן תרשומות שיחה, החלטות וארכות ({targetLogs.length}{' '}
+                        רישומים • מונה דחיות: {targetCase.extensions_count || 0}
+                        ):
+                      </h3>
+                      {targetLogs.length === 0 ? (
+                        <p>טרם הוזנו תרשומות ביומן התיק.</p>
+                      ) : (
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>תאריך ושעה</th>
+                              <th>סוג רישום</th>
+                              <th>תוכן התרשומת / ההחלטה</th>
+                              <th>נחתם ע&quot;י</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {targetLogs.map((l) => (
+                              <tr key={l.id}>
+                                <td>{formatDateTimeHe(l.log_date)}</td>
+                                <td>[{l.log_type}]</td>
+                                <td>{l.content}</td>
+                                <td>{l.created_by || 'מערכת'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : screenMode === 'home' && !customPrintList ? (
+                /* ========================================================== */
+                /* ב. הדפסת מסך הבית עצמו (תמונת מצב ניהולית ומדדים)         */
+                /* ========================================================== */
+                <div>
+                  <h3
+                    style={{
+                      fontSize: '15px',
+                      fontWeight: 800,
+                      margin: '0 0 8px 0',
+                    }}
+                  >
+                    1. ריכוז מדדי ביצוע ובקרה — מסך הבית (Executive Command
+                    Center):
+                  </h3>
+                  <table style={{ marginBottom: '16px' }}>
+                    <thead>
+                      <tr>
+                        <th>התקדמות כללית בתיקים</th>
+                        <th>דיונים קרובים</th>
+                        <th>דיונים שנדחו / ארכות</th>
+                        <th>תגובות והגשות לביהמ&quot;ש</th>
+                        <th>משימות דחופות ואיחורים</th>
+                        <th>גביית שכר טרחה</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td>
+                          <strong>{homeMetrics.overallProgressPct}%</strong> (
+                          {homeMetrics.completedMilestones}/
+                          {homeMetrics.totalMilestones} שלבים)
+                        </td>
+                        <td>
+                          <strong>{homeMetrics.upcomingHearings.length}</strong>{' '}
+                          תיקים ({homeMetrics.upcomingPct}%)
+                        </td>
+                        <td>
+                          <strong>
+                            {homeMetrics.postponedHearings.length}
+                          </strong>{' '}
+                          תיקים ({homeMetrics.totalExtensionsSum} ארכות)
+                        </td>
+                        <td>
+                          <strong>{homeMetrics.courtSubmissions.length}</strong>{' '}
+                          תיקים (היערכות: {homeMetrics.avgPrepDays} ימים)
+                        </td>
+                        <td>
+                          <strong>{homeMetrics.urgentTasks.length}</strong>{' '}
+                          דחופים / {homeMetrics.delayedCases.length} בחריגה
+                        </td>
+                        <td>
+                          שולם:{' '}
+                          {formatCurrencyILS(homeMetrics.paidAmountSum)} (
+                          {homeMetrics.paidCasesCount}) | פתוח:{' '}
+                          {formatCurrencyILS(homeMetrics.unpaidAmountSum)} (
+                          {homeMetrics.unpaidCasesCount})
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+
+                  <h3
+                    style={{
+                      fontSize: '15px',
+                      fontWeight: 800,
+                      margin: '0 0 8px 0',
+                    }}
+                  >
+                    2. פילוח תיקים לפי 4 תחומי הפעילות:
+                  </h3>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>קטגוריה / תחום פעילות</th>
+                        <th>כמות תיקים פעילים</th>
+                        <th>שיעור מסך הפעילות (%)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {homeMetrics.byCategory.map((item) => (
+                        <tr key={item.category}>
+                          <td>
+                            <strong>
+                              {CATEGORY_LABELS[item.category].title}
+                            </strong>
+                          </td>
+                          <td>{item.count} תיקים</td>
+                          <td>{item.pct}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                /* ========================================================== */
+                /* ג. הדפסת מסך התיקים / רשימה מסוננת                        */
+                /* ========================================================== */
                 <table>
                   <thead>
                     <tr>
                       <th>#</th>
-                      <th>תיאור המשימה</th>
-                      <th>סטטוס</th>
-                      <th>דחיפות</th>
-                      <th>התחלה / סיום</th>
+                      <th>שם חייב / חברה / פרויקט</th>
+                      <th>מספר תיק ות&quot;ז</th>
+                      <th>קטגוריה ומחוז</th>
+                      <th>שלב וסטטוס</th>
+                      <th>פרטי תחום / חוב / שכ&quot;ט</th>
+                      <th>הפעולה הבאה ושדות מעקב</th>
+                      <th>מועד יעד</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {(selectedCase.milestones || []).map((m, idx) => (
-                      <tr key={m.id}>
-                        <td>{idx + 1}</td>
-                        <td>{m.title}</td>
-                        <td>
-                          {m.status === 'done'
-                            ? 'בוצע ✓'
-                            : m.status === 'in_progress'
-                            ? 'בתהליך'
-                            : 'יבוצע בהמשך'}
-                        </td>
-                        <td>{m.urgency || 'רגילה'}</td>
-                        <td>
-                          {formatDateHe(m.started_at)}{' '}
-                          {m.completed_at
-                            ? `➔ ${formatDateHe(m.completed_at)}`
-                            : ''}
-                        </td>
-                      </tr>
-                    ))}
+                    {printCasesToRender.map((c, idx) => {
+                      const totalDebt = calculateTotalDebt(c);
+                      return (
+                        <tr key={c.id}>
+                          <td>{idx + 1}</td>
+                          <td>
+                            <strong>{c.debtor_name}</strong>
+                          </td>
+                          <td>
+                            <div>תיק: {c.case_number || '—'}</div>
+                            {c.id_or_hp && (
+                              <div>ח&quot;פ/ת&quot;ז: {c.id_or_hp}</div>
+                            )}
+                          </td>
+                          <td>
+                            <div>[{c.category}]</div>
+                            <div>[מחוז: {c.district || 'מרכז'}]</div>
+                          </td>
+                          <td>
+                            <div>[שלב: {classifyWorkflowStage(c)}]</div>
+                            <div>[סטטוס: {c.status}]</div>
+                          </td>
+                          <td>
+                            {c.municipality && (
+                              <div>רשות: {c.municipality}</div>
+                            )}
+                            {totalDebt > 0 && (
+                              <div>חוב: {formatCurrencyILS(totalDebt)}</div>
+                            )}
+                            <div>
+                              [שכ&quot;ט:{' '}
+                              {c.legal_fee_paid ? 'שולם' : 'לא שולם'}]
+                            </div>
+                          </td>
+                          <td>
+                            <div>
+                              <strong>[{c.next_action_type}]</strong>{' '}
+                              {c.next_action_description || ''}
+                            </div>
+                          </td>
+                          <td>
+                            {c.next_due_date
+                              ? formatDateHe(c.next_due_date)
+                              : 'ללא מועד'}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
-              </div>
-            )}
-          </div>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>שם חייב / חברה / פרויקט</th>
-                <th>מספר תיק ות&quot;ז</th>
-                <th>קטגוריה ומחוז</th>
-                <th>שלב וסטטוס</th>
-                <th>פרטי תחום / חוב / שכ&quot;ט</th>
-                <th>הפעולה הבאה ושדות מעקב</th>
-                <th>מועד יעד</th>
-              </tr>
-            </thead>
-            <tbody>
-              {printCasesToRender.map((c, idx) => {
-                const totalDebt = calculateTotalDebt(c);
-                return (
-                  <tr key={c.id}>
-                    <td>{idx + 1}</td>
-                    <td>
-                      <strong>{c.debtor_name}</strong>
-                    </td>
-                    <td>
-                      <div>תיק: {c.case_number || '—'}</div>
-                      {c.id_or_hp && <div>ח&quot;פ/ת&quot;ז: {c.id_or_hp}</div>}
-                    </td>
-                    <td>
-                      <div>[{c.category}]</div>
-                      <div>[מחוז: {c.district || 'מרכז'}]</div>
-                    </td>
-                    <td>
-                      <div>[שלב: {classifyWorkflowStage(c)}]</div>
-                      <div>[סטטוס: {c.status}]</div>
-                    </td>
-                    <td>
-                      {c.municipality && <div>רשות: {c.municipality}</div>}
-                      {totalDebt > 0 && (
-                        <div>חוב: {formatCurrencyILS(totalDebt)}</div>
-                      )}
-                      <div>
-                        [שכ&quot;ט: {c.legal_fee_paid ? 'שולם' : 'לא שולם'}]
-                      </div>
-                    </td>
-                    <td>
-                      <div>
-                        <strong>[{c.next_action_type}]</strong>{' '}
-                        {c.next_action_description || ''}
-                      </div>
-                    </td>
-                    <td>
-                      {c.next_due_date
-                        ? formatDateHe(c.next_due_date)
-                        : 'ללא מועד'}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
+              )}
+            </>
+          );
+        })()}
       </div>
     </>
   );
