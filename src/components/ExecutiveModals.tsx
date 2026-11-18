@@ -34,6 +34,9 @@ import {
   Users,
   Wallet,
   X,
+  Save,
+  Plus,
+  ClipboardPaste,
 } from 'lucide-react';
 import {
   CASE_CATEGORIES,
@@ -501,6 +504,8 @@ interface ReportsAndChartsModalProps {
   onSelectCase: (caseItem: CaseItem, tab?: DrawerTab) => void;
   onCasesUpdated: (updatedCases: CaseItem[]) => void;
   onPrintBiReport: (casesToPrint: CaseItem[], reportTitle: string) => void;
+  onOpenNewCase?: () => void;
+  onOpenSmartPaste?: () => void;
 }
 
 export function ReportsAndChartsModal({
@@ -511,7 +516,11 @@ export function ReportsAndChartsModal({
   onSelectCase,
   onCasesUpdated,
   onPrintBiReport,
+  onOpenNewCase,
+  onOpenSmartPaste,
 }: ReportsAndChartsModalProps) {
+  const [biSaveFlash, setBiSaveFlash] = useState(false);
+  const [biEditMode, setBiEditMode] = useState(true);
   // פילטרים אינטראקטיביים של מרכז ה-BI
   const [filterDistrict, setFilterDistrict] = useState<'הכל' | CaseDistrict>(
     'הכל'
@@ -932,7 +941,82 @@ export function ReportsAndChartsModal({
             </div>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+            {onOpenNewCase && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenNewCase();
+                }}
+                className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1.5 transition"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ תיק חדש</span>
+              </button>
+            )}
+
+            {onOpenSmartPaste && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenSmartPaste();
+                }}
+                className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-extrabold flex items-center gap-1.5 transition"
+              >
+                <ClipboardPaste className="w-3.5 h-3.5" />
+                <span>קליטה חכמה</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                setBiSaveFlash(true);
+                setTimeout(() => setBiSaveFlash(false), 2000);
+              }}
+              className={`px-3 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 border transition ${
+                biSaveFlash
+                  ? 'bg-emerald-500 text-slate-950 border-emerald-300'
+                  : 'bg-white/10 hover:bg-white/20 text-white border-white/15'
+              }`}
+            >
+              {biSaveFlash ? (
+                <>
+                  <Check className="w-3.5 h-3.5" />
+                  <span>נשמר ✓</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-3.5 h-3.5 text-sky-300" />
+                  <span>שמירה</span>
+                </>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setBiEditMode((v) => !v)}
+              className={`px-3 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 border transition ${
+                biEditMode
+                  ? 'bg-white/10 hover:bg-white/20 text-emerald-300 border-emerald-400/40'
+                  : 'bg-amber-500 text-slate-950 border-amber-300'
+              }`}
+            >
+              {biEditMode ? (
+                <>
+                  <Unlock className="w-3.5 h-3.5" />
+                  <span>מצב עריכה</span>
+                </>
+              ) : (
+                <>
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>מצב צפייה</span>
+                </>
+              )}
+            </button>
+
             <button
               type="button"
               onClick={() =>
@@ -944,7 +1028,7 @@ export function ReportsAndChartsModal({
               className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-xs transition"
             >
               <FileSpreadsheet className="w-4 h-4" />
-              <span>ייצוא דוח לאקסל (.xlsx) ({biFilteredCases.length})</span>
+              <span>ייצוא לאקסל ({biFilteredCases.length})</span>
             </button>
 
             <button
@@ -971,7 +1055,7 @@ export function ReportsAndChartsModal({
               className="px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-xs transition"
             >
               <Printer className="w-4 h-4" />
-              <span>הדפסת דוח ({biFilteredCases.length})</span>
+              <span>הדפסה / PDF ({biFilteredCases.length})</span>
             </button>
 
             <button

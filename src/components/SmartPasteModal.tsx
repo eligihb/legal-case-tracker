@@ -60,15 +60,19 @@ function parseHebrewLegalText(rawText: string): ParsedPasteResult {
 
   // 1. זיהוי מספר תיק (למשל 12345-06-26, 54321-11-25, הוצל"פ 501234-05-24)
   let caseNumber = '';
+  let matchedCaseToken = '';
   const caseRegex =
     /(?:ת"א|תא"מ|חדל"פ|פש"ר|פר"ק|הוצל"פ|תיק|מס['׳]?)\s*[:\-]?\s*(\d{3,7}-\d{2}-\d{2,4})|(\b\d{4,7}-\d{2}-\d{2,4}\b)/;
   const caseMatch = text.match(caseRegex);
   if (caseMatch) {
     caseNumber = (caseMatch[1] || caseMatch[2] || '').trim();
+    matchedCaseToken = caseMatch[0];
   }
 
-  // 2. זיהוי תאריך מפורש (DD/MM/YYYY או DD.MM.YYYY) או "תוך X ימים"
+  // 2. זיהוי תאריך מפורש (DD/MM/YYYY או DD.MM.YYYY) או ביטויי זמן יחסיים בעברית:
+  // "לעוד X ימים" / "בעוד X ימים" / "תוך X ימים" / "מחר" / "מחרתיים" / "בעוד שבוע" / "בעוד שבועיים" / "בעוד חודש"
   let detectedDate = '';
+  let matchedDateToken = '';
   const dateRegex = /\b(\d{1,2})[./-](\d{1,2})[./-](20\d{2}|\d{2})\b/;
   const dateMatch = text.match(dateRegex);
   if (dateMatch) {
@@ -78,15 +82,35 @@ function parseHebrewLegalText(rawText: string): ParsedPasteResult {
       dateMatch[3].length === 2 ? `20${dateMatch[3]}` : dateMatch[3];
     if (Number(month) >= 1 && Number(month) <= 12 && Number(day) <= 31) {
       detectedDate = `${year}-${month}-${day}`;
+      matchedDateToken = dateMatch[0];
     }
   }
 
   if (!detectedDate) {
-    const withinDaysRegex = /תוך\s+(\d{1,3})\s+ימים/;
-    const withinMatch = text.match(withinDaysRegex);
-    if (withinMatch) {
-      const days = Number(withinMatch[1]) || 7;
+    const relDaysRegex = /(?:לעוד|בעוד|תוך)\s+(\d{1,3})\s+(?:יום|ימים)/;
+    const relDaysMatch = text.match(relDaysRegex);
+    if (relDaysMatch) {
+      const days = Number(relDaysMatch[1]) || 7;
       detectedDate = addDaysToDateStr(todayStr, days) || '';
+      matchedDateToken = relDaysMatch[0];
+    } else if (/(?:לעוד|בעוד)\s+שבועיים/.test(text)) {
+      const m = text.match(/(?:לעוד|בעוד)\s+שבועיים/);
+      detectedDate = addDaysToDateStr(todayStr, 14) || '';
+      matchedDateToken = m ? m[0] : '';
+    } else if (/(?:לעוד|בעוד)\s+שבוע\b/.test(text)) {
+      const m = text.match(/(?:לעוד|בעוד)\s+שבוע\b/);
+      detectedDate = addDaysToDateStr(todayStr, 7) || '';
+      matchedDateToken = m ? m[0] : '';
+    } else if (/(?:לעוד|בעוד)\s+חודש\b/.test(text)) {
+      const m = text.match(/(?:לעוד|בעוד)\s+חודש\b/);
+      detectedDate = addDaysToDateStr(todayStr, 30) || '';
+      matchedDateToken = m ? m[0] : '';
+    } else if (/\bמחרתיים\b/.test(text)) {
+      detectedDate = addDaysToDateStr(todayStr, 2) || '';
+      matchedDateToken = 'מחרתיים';
+    } else if (/\bמחר\b/.test(text)) {
+      detectedDate = addDaysToDateStr(todayStr, 1) || '';
+      matchedDateToken = 'מחר';
     }
   }
 
@@ -125,9 +149,10 @@ function parseHebrewLegalText(rawText: string): ParsedPasteResult {
   ) {
     nextActionType = 'תגובה';
     suggestedStatus = 'הגשה ממתינה לביהמ"ש';
-    netStatus = text.includes('צד שכנגד') || text.includes('המשיב')
-      ? 'נדרשת תגובת צד שכנגד'
-      : 'התקבלה החלטה';
+    netStatus =
+      text.includes('צד שכנגד') || text.includes('המשיב')
+        ? 'נדרשת תגובת צד שכנגד'
+        : 'התקבלה החלטה';
     logType = 'החלטת ביהמ"ש';
     prepDays = 5;
   } else if (
@@ -146,22 +171,73 @@ function parseHebrewLegalText(rawText: string): ParsedPasteResult {
     netStatus = 'ממתין להחלטת שופט/רשם';
   }
 
-  // 4. זיהוי שם צד / לקוח / עניין מתוך הטקסט
-  let detectedPartyName = '';
-  const partyRegex =
-    /(?:בעניין|החייב|התובע|הנתבע|המבקש|המשיב|חברת|נגד)\s*[:\-]?\s*([א-ת0-9"״'׳\s().-]{3,40})/;
-  const partyMatch = text.match(partyRegex);
-  if (partyMatch && partyMatch[1]) {
-    detectedPartyName = partyMatch[1].split(/[\n,.]/)[0].trim();
+  // כללי זיהוי מפורשים: "משימת" / "מעקב" -> 'משימת מעקב / תזכורת', "ממתין להחלטת" / "נט המשפט" -> 'ממתין להחלטת שופט/רשם'
+  if (text.includes('משימת') || text.includes('מעקב')) {
+    nextActionType = 'משימת מעקב / תזכורת';
+    logType = 'תזכורת אישית/מועד';
+  }
+  if (text.includes('ממתין להחלטת') || text.includes('נט המשפט')) {
+    netStatus = 'ממתין להחלטת שופט/רשם';
+    if (suggestedStatus === 'פעיל') {
+      suggestedStatus = 'ממתין להחלטה';
+    }
   }
 
+  // 4. חילוץ שם לקוח / חייב / עניין ועצירה במילת הקשר/סטטוס (ממתין, משימת, דיון, הגשה, בתיק, פסיק/נקודה)
+  let detectedPartyName = '';
+  let matchedPartyPrefixToken = '';
+  const partyRegex =
+    /(?:שם(?:\s+הלקוח|\s+החייב)?|חייב|לקוח|בעניין|החייב|התובע|הנתבע|המבקש|המשיב|חברת|נגד)\s*[:\-]?\s*([א-ת0-9"״'׳\s().-]{2,55})/;
+  const partyMatch = text.match(partyRegex);
+  if (partyMatch && partyMatch[1]) {
+    const rawCandidate = partyMatch[1];
+    const stoppedCandidate = rawCandidate
+      .split(
+        /(?:\s+(?:ממתין|ממתינה|משימת|משימה|דיון|הגשה|הגשת|תגובה|בתיק|תיק|לעוד|בעוד|תוך|מחר|מחרתיים)\b|[,\n.;–—])/
+      )[0]
+      .trim();
+    if (stoppedCandidate.length >= 2) {
+      detectedPartyName = stoppedCandidate;
+      const prefixOnly = partyMatch[0].split(rawCandidate)[0] || '';
+      matchedPartyPrefixToken = `${prefixOnly}${stoppedCandidate}`;
+    }
+  }
+
+  // 5. ניקוי תיאור המשימה ("נושא ההחלטה / המשימה לביצוע"):
+  // מסיר את מספר התיק ואת ביטוי הזמן שכבר חולצו לשדות הייעודיים
   const firstLine =
     text
       .split('\n')
       .map((l) => l.trim())
-      .find((l) => l.length > 3) || '';
+      .find((l) => l.length > 2) || '';
+
+  let cleanedSubject = firstLine;
+  if (matchedCaseToken) {
+    cleanedSubject = cleanedSubject.replace(matchedCaseToken, ' ');
+  }
+  if (caseNumber) {
+    cleanedSubject = cleanedSubject.replace(caseNumber, ' ');
+  }
+  if (matchedDateToken) {
+    cleanedSubject = cleanedSubject.replace(matchedDateToken, ' ');
+  }
+  if (matchedPartyPrefixToken) {
+    cleanedSubject = cleanedSubject.replace(matchedPartyPrefixToken, ' ');
+  }
+  cleanedSubject = cleanedSubject
+    .replace(/^(?:תיק|בתיק|מס['׳]?)\s*[:\-]?\s*/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/^[\s,\-–—:.]+|[\s,\-–—:.]+$/g, '')
+    .trim();
+
+  if (!cleanedSubject) {
+    cleanedSubject = firstLine;
+  }
+
   const subjectSummary =
-    firstLine.length > 95 ? `${firstLine.slice(0, 95)}...` : firstLine;
+    cleanedSubject.length > 95
+      ? `${cleanedSubject.slice(0, 95)}...`
+      : cleanedSubject;
 
   return {
     caseNumber,
@@ -243,12 +319,10 @@ export default function SmartPasteModal({
       setDebtorName(matched.debtor_name);
       setCategory(matched.category);
     } else {
-      if (parsed.detectedPartyName && !debtorName) {
+      if (parsed.detectedPartyName) {
         setDebtorName(parsed.detectedPartyName);
       }
-      if (cases.length === 0) {
-        setMode('new');
-      }
+      setMode('new');
     }
   };
 

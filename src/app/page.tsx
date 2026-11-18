@@ -34,6 +34,10 @@ import {
   TrendingUp,
   ClipboardPaste,
   User,
+  Save,
+  Lock,
+  Unlock,
+  Check,
 } from 'lucide-react';
 import {
   CASE_CATEGORIES,
@@ -133,6 +137,8 @@ export default function DashboardPage() {
   // חלונות מערכת (Modals)
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
   const [isSmartPasteOpen, setIsSmartPasteOpen] = useState(false);
+  const [globalEditMode, setGlobalEditMode] = useState<boolean>(true);
+  const [globalSaveFlash, setGlobalSaveFlash] = useState<boolean>(false);
   const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
   const [isMuniModalOpen, setIsMuniModalOpen] = useState(false);
   const [isUsersModalOpen, setIsUsersModalOpen] = useState(false);
@@ -984,19 +990,19 @@ export default function DashboardPage() {
         className="h-dvh flex flex-col overflow-hidden bg-[#F8FAFC] text-slate-900 transition-all duration-200"
       >
         {/* ================================================================== */}
-        {/* רצועה 1 — סרגל פעולה וחיפוש חכם (למעלה):                            */}
-        {/* שורת חיפוש רחבה עם זכוכית מגדלת בלבד | + הזנה מהירה / תיק חדש |    */}
-        {/* קליטה ממייל / נט המשפט | דוחות וגרפים | שלום + משתמש | ניהול | מדפסת */}
+        {/* רצועה 1 — סרגל כלים עליון קבוע ונגיש בכל מסך (sticky top-0 z-40)   */}
+        {/* שורת חיפוש חכמה | + תיק חדש | קליטה חכמה (מייל / נט המשפט) |       */}
+        {/* שמירה | מצב עריכה / צפייה | הדפסה / PDF | ייצוא לאקסל | דוחות | ניהול */}
         {/* ================================================================== */}
-        <header className="shrink-0 z-30 bg-[#0F172A] text-white border-b border-slate-800 shadow-md">
-          <div className="max-w-[1600px] mx-auto px-3 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-2.5">
+        <header className="sticky top-0 z-40 shrink-0 bg-[#0F172A] text-white border-b border-slate-800 shadow-md">
+          <div className="max-w-[1600px] mx-auto px-3 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-2">
             {/* צד ימין: מסך הבית + חזרה + שורת חיפוש חכם רחבה עם זכוכית מגדלת בלבד */}
-            <div className="flex items-center gap-2 flex-1 min-w-[280px]">
+            <div className="flex items-center gap-2 flex-1 min-w-[260px]">
               <button
                 type="button"
                 onClick={handleGoHome}
                 title="מסך הבית — מבט-על ניהולי"
-                className={`px-3 py-2 rounded-xl font-extrabold text-xs sm:text-sm flex items-center gap-1.5 border shrink-0 transition ${
+                className={`px-3 py-1.5 rounded-xl font-extrabold text-xs sm:text-sm flex items-center gap-1.5 border shrink-0 transition ${
                   screenMode === 'home'
                     ? 'bg-blue-600 text-white border-blue-400 shadow-xs'
                     : 'bg-slate-800 hover:bg-blue-600 text-white border-slate-700'
@@ -1011,7 +1017,7 @@ export default function DashboardPage() {
                   type="button"
                   onClick={handleGoBack}
                   title="חזרה למסך קודם"
-                  className="px-2.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-extrabold flex items-center gap-1 shrink-0 transition"
+                  className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-extrabold flex items-center gap-1 shrink-0 transition"
                 >
                   <ArrowRight className="w-4 h-4 text-sky-400 shrink-0" />
                   <span className="hidden md:inline">חזרה</span>
@@ -1019,7 +1025,7 @@ export default function DashboardPage() {
               )}
 
               {/* שורת חיפוש חכמה רחבה עם אייקון זכוכית מגדלת בלבד */}
-              <div className="relative flex-1 max-w-xl">
+              <div className="relative flex-1 max-w-md">
                 <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   type="text"
@@ -1027,7 +1033,7 @@ export default function DashboardPage() {
                   value={homeSearchQuery}
                   onChange={(e) => setHomeSearchQuery(e.target.value)}
                   placeholder="חיפוש לפי שם, ת״ז, מספר תיק או נושא..."
-                  className="w-full pr-10 pl-8 py-2 text-xs sm:text-sm rounded-xl bg-white text-slate-900 placeholder-slate-400 font-bold shadow-inner border border-slate-200 focus:border-blue-400 outline-none"
+                  className="w-full pr-10 pl-8 py-1.5 text-xs sm:text-sm rounded-xl bg-white text-slate-900 placeholder-slate-400 font-bold shadow-inner border border-slate-200 focus:border-blue-400 outline-none"
                 />
                 {homeSearchQuery && (
                   <button
@@ -1092,50 +1098,134 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* מרכז ושמאל: + הזנה מהירה / תיק חדש | קליטה ממייל / נט המשפט | דוחות וגרפים | שלום + משתמש | ניהול | מדפסת */}
-            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-              {/* כפתור ראשי בולט: + הזנה מהירה / תיק חדש */}
+            {/* מרכז ושמאל: סרגל הפעולות הקבוע בכל מסך */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {/* 1. כפתור + תיק חדש */}
               <button
                 type="button"
                 onClick={() => setIsNewModalOpen(true)}
-                className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-400/40 font-extrabold text-xs sm:text-sm flex items-center gap-1.5 shadow-xs transition"
+                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-400/40 font-extrabold text-xs flex items-center gap-1.5 shadow-xs transition"
               >
-                <Plus className="w-4 h-4 shrink-0" />
-                <span>+ הזנה מהירה / תיק חדש</span>
+                <Plus className="w-3.5 h-3.5 shrink-0" />
+                <span>+ תיק חדש</span>
               </button>
 
-              {/* כפתור קליטה ממייל / נט המשפט */}
+              {/* 2. כפתור קליטה חכמה (מייל / נט המשפט) */}
               <button
                 type="button"
                 onClick={() => setIsSmartPasteOpen(true)}
-                className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white border border-blue-400/40 font-extrabold text-xs sm:text-sm flex items-center gap-1.5 shadow-xs transition"
+                className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white border border-blue-400/40 font-extrabold text-xs flex items-center gap-1.5 shadow-xs transition"
               >
-                <ClipboardPaste className="w-4 h-4 shrink-0" />
-                <span>קליטה ממייל / נט המשפט</span>
+                <ClipboardPaste className="w-3.5 h-3.5 shrink-0" />
+                <span>קליטה חכמה (מייל / נט המשפט)</span>
               </button>
 
-              {/* כפתור דוחות וגרפים */}
+              {/* 3. כפתור שמירה (Save) עם חיווי "נשמר ✓" */}
+              <button
+                type="button"
+                onClick={async () => {
+                  const latest = await fetchAllCases();
+                  setCases(latest);
+                  setGlobalSaveFlash(true);
+                  setTimeout(() => setGlobalSaveFlash(false), 2200);
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 border transition ${
+                  globalSaveFlash
+                    ? 'bg-emerald-500 text-slate-950 border-emerald-300 shadow-xs'
+                    : 'bg-slate-800 hover:bg-slate-700 text-white border-slate-600'
+                }`}
+                title="שמירה מיידית של כל השינויים ב-LocalStorage"
+              >
+                {globalSaveFlash ? (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>נשמר ✓</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-3.5 h-3.5 text-sky-400" />
+                    <span>שמירה</span>
+                  </>
+                )}
+              </button>
+
+              {/* 4. כפתור מצב עריכה / צפייה (Edit Mode Toggle) */}
+              <button
+                type="button"
+                onClick={() => setGlobalEditMode((prev) => !prev)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 border transition ${
+                  globalEditMode
+                    ? 'bg-slate-800 hover:bg-slate-700 text-emerald-300 border-emerald-500/40'
+                    : 'bg-amber-500 text-slate-950 border-amber-300'
+                }`}
+                title="מעבר מהיר בין מצב עריכה פתוח למצב צפייה (נעול)"
+              >
+                {globalEditMode ? (
+                  <>
+                    <Unlock className="w-3.5 h-3.5" />
+                    <span>מצב עריכה</span>
+                  </>
+                ) : (
+                  <>
+                    <Lock className="w-3.5 h-3.5" />
+                    <span>מצב צפייה</span>
+                  </>
+                )}
+              </button>
+
+              {/* 5. כפתור הדפסה / PDF */}
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-600 text-xs font-extrabold flex items-center gap-1.5 transition"
+                title="הדפסת טבלת סיכום נתונים נקייה בשחור-לבן / PDF"
+              >
+                <Printer className="w-3.5 h-3.5 shrink-0" />
+                <span>הדפסה / PDF</span>
+              </button>
+
+              {/* 6. כפתור ייצוא לאקסל */}
+              {canExportAndBackup && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    quickExportFilteredCasesToXlsx(
+                      screenMode === 'home'
+                        ? activeCasesAllDomains
+                        : filteredCases,
+                      currentScreenTitle
+                    )
+                  }
+                  className="px-3 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white border border-emerald-500/40 text-xs font-extrabold flex items-center gap-1.5 transition"
+                  title="ייצוא מהיר של המסך הנוכחי לקובץ אקסל (.xlsx)"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 shrink-0" />
+                  <span>ייצוא לאקסל</span>
+                </button>
+              )}
+
+              {/* 7. כפתור דוחות וגרפים */}
               <button
                 type="button"
                 onClick={() => setIsReportsModalOpen(true)}
-                className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white border border-indigo-400/40 text-xs sm:text-sm font-extrabold flex items-center gap-1.5 shadow-xs transition"
+                className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white border border-indigo-400/40 text-xs font-extrabold flex items-center gap-1.5 shadow-xs transition"
               >
-                <BarChart3 className="w-4 h-4 text-sky-200 shrink-0" />
+                <BarChart3 className="w-3.5 h-3.5 text-sky-200 shrink-0" />
                 <span>דוחות וגרפים</span>
               </button>
 
-              <div className="h-6 w-px bg-slate-700 hidden lg:block" />
-
-              {/* ברכת שלום + שם משתמש (לחיצה להחלפת תפקיד מהירה + ניתוק) */}
+              {/* ברכת שלום + שם משתמש + ניהול */}
               <div className="inline-flex items-center rounded-xl bg-slate-800 border border-slate-700 overflow-hidden">
                 <button
                   type="button"
                   onClick={handleToggleRoleQuick}
                   title="לחץ להחלפה מהירה בין תצוגת מנהל לעובד"
-                  className="px-2.5 py-1.5 text-xs font-extrabold text-slate-200 hover:text-white flex items-center gap-1.5 transition"
+                  className="px-2 py-1.5 text-xs font-extrabold text-slate-200 hover:text-white flex items-center gap-1 transition"
                 >
                   <User className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-                  <span>שלום, {currentUser.displayName}</span>
+                  <span className="hidden xl:inline">
+                    שלום, {currentUser.displayName}
+                  </span>
                 </button>
                 <button
                   type="button"
@@ -1147,25 +1237,14 @@ export default function DashboardPage() {
                 </button>
               </div>
 
-              {/* כפתור ניהול */}
               <button
                 type="button"
                 onClick={() => setIsSettingsModalOpen(true)}
-                className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/40 text-xs sm:text-sm font-extrabold flex items-center gap-1.5 transition"
+                className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/40 text-xs font-extrabold flex items-center gap-1 transition"
                 title="ניהול מערכת, הרשאות, גיבוי ושחזור"
               >
-                <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0" />
+                <ShieldCheck className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                 <span>ניהול</span>
-              </button>
-
-              {/* אייקון מדפסת (Printer) */}
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-600 transition"
-                title="הדפס / שמור כ-PDF את המסך הנוכחי"
-              >
-                <Printer className="w-4 h-4" />
               </button>
             </div>
           </div>
@@ -1613,7 +1692,28 @@ export default function DashboardPage() {
             /* ============================================================== */
             /* מסך התיקים (screenMode === 'cases'): מוצג בלחיצה על קטגוריה או "כל התיקים" */
             /* ============================================================== */
-            <div className="space-y-4">
+            <div
+              className={`space-y-4 ${
+                !globalEditMode
+                  ? ' [&_tbody_select]:pointer-events-none [&_tbody_select]:opacity-75'
+                  : ''
+              }`}
+            >
+              {!globalEditMode && (
+                <div className="px-4 py-2 rounded-xl bg-amber-50 border border-amber-300 text-amber-950 text-xs font-extrabold flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Lock className="w-4 h-4 text-amber-700" />
+                    מצב צפייה פעיל — שינוי מהיר של סטטוסים ומחוזות בטבלה נעול כעת.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setGlobalEditMode(true)}
+                    className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold transition"
+                  >
+                    עבור למצב עריכה 🔓
+                  </button>
+                </div>
+              )}
               {/* לשוניות קטגוריות למעבר מהיר בתוך מסך התיקים */}
               <section className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2">
@@ -2313,6 +2413,8 @@ export default function DashboardPage() {
           onSelectCase={(c, tab) => openCaseDrawer(c, tab)}
           onCasesUpdated={(updatedList) => setCases(updatedList)}
           onPrintBiReport={(list, title) => triggerPrintWithList(list, title)}
+          onOpenNewCase={() => setIsNewModalOpen(true)}
+          onOpenSmartPaste={() => setIsSmartPasteOpen(true)}
         />
 
         <ExecutiveSettingsModal
@@ -2367,6 +2469,8 @@ export default function DashboardPage() {
           municipalitiesSettings={muniSettings}
           currentUser={currentUser}
           onOpenMuniSettingsModal={() => setIsMuniModalOpen(true)}
+          onOpenNewCaseModal={() => setIsNewModalOpen(true)}
+          onOpenSmartPasteModal={() => setIsSmartPasteOpen(true)}
         />
 
         <AddCustomFieldModal

@@ -33,6 +33,10 @@ import {
   ChevronDown,
   ChevronUp,
   Columns3,
+  Save,
+  Lock,
+  Unlock,
+  ClipboardPaste,
 } from 'lucide-react';
 import {
   CASE_CATEGORIES,
@@ -121,6 +125,8 @@ interface CaseDrawerProps {
   municipalitiesSettings: MunicipalitySetting[];
   currentUser: UserSession;
   onOpenMuniSettingsModal?: () => void;
+  onOpenNewCaseModal?: () => void;
+  onOpenSmartPasteModal?: () => void;
 }
 
 export default function CaseDrawer({
@@ -136,6 +142,8 @@ export default function CaseDrawer({
   municipalitiesSettings,
   currentUser,
   onOpenMuniSettingsModal,
+  onOpenNewCaseModal,
+  onOpenSmartPasteModal,
 }: CaseDrawerProps) {
   const isAdmin = currentUser.role === 'admin';
   const [activeTab, setActiveTab] = useState<DrawerTab>('executive');
@@ -148,6 +156,8 @@ export default function CaseDrawer({
   const [showCompletedTasksExec, setShowCompletedTasksExec] = useState(true);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [newTaskDueDate, setNewTaskDueDate] = useState('');
+  const [isEditMode, setIsEditMode] = useState<boolean>(true);
+  const [manualSaveFlash, setManualSaveFlash] = useState<boolean>(false);
 
   const [logs, setLogs] = useState<CaseLog[]>([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
@@ -1269,18 +1279,97 @@ export default function CaseDrawer({
             </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0 no-print">
-            <span className="text-xs px-3 py-1.5 rounded-lg bg-white/10 text-emerald-300 border border-white/15 font-bold">
-              {autoSaveStatus === 'saving'
-                ? 'שומר אוטומטית...'
-                : 'Auto-Save פעיל ✓'}
-            </span>
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 flex-wrap no-print">
+            {/* 1. כפתור שמירה (Save) עם חיווי "נשמר ✓" */}
+            <button
+              type="button"
+              onClick={async () => {
+                await persistCaseUpdates();
+                setManualSaveFlash(true);
+                setTimeout(() => setManualSaveFlash(false), 2200);
+              }}
+              className={`px-3 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-1.5 border transition ${
+                manualSaveFlash
+                  ? 'bg-emerald-500 text-slate-950 border-emerald-300 shadow-xs'
+                  : 'bg-blue-600 hover:bg-blue-500 text-white border-blue-400/50 shadow-xs'
+              }`}
+              title="שמירה מיידית של כל נתוני התיק"
+            >
+              {manualSaveFlash ? (
+                <>
+                  <Check className="w-4 h-4" />
+                  <span>נשמר ✓</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  <span>
+                    {autoSaveStatus === 'saving' ? 'שומר...' : 'שמירה'}
+                  </span>
+                </>
+              )}
+            </button>
+
+            {/* 2. כפתור מצב עריכה / צפייה (Edit Mode Toggle) */}
+            <button
+              type="button"
+              onClick={() => setIsEditMode((prev) => !prev)}
+              className={`px-3 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-1.5 border transition ${
+                isEditMode
+                  ? 'bg-white/10 hover:bg-white/20 text-emerald-300 border-emerald-400/40'
+                  : 'bg-amber-500 text-slate-950 border-amber-300'
+              }`}
+              title="מעבר מהיר בין מצב עריכה פתוח למצב צפייה בלבד (נעול)"
+            >
+              {isEditMode ? (
+                <>
+                  <Unlock className="w-4 h-4" />
+                  <span>מצב עריכה</span>
+                </>
+              ) : (
+                <>
+                  <Lock className="w-4 h-4" />
+                  <span>מצב צפייה (נעול)</span>
+                </>
+              )}
+            </button>
+
+            {/* 3. כפתור + תיק חדש ו-קליטה חכמה (מייל / נט המשפט) */}
+            {onOpenNewCaseModal && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenNewCaseModal();
+                }}
+                className="px-2.5 py-2 rounded-xl bg-emerald-600/90 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1 border border-emerald-400/40 transition"
+                title="פתח תיק חדש"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span className="hidden xl:inline">+ תיק חדש</span>
+              </button>
+            )}
+
+            {onOpenSmartPasteModal && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenSmartPasteModal();
+                }}
+                className="px-2.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-extrabold flex items-center gap-1 border border-indigo-400/40 transition"
+                title="קליטה חכמה ממייל / נט המשפט"
+              >
+                <ClipboardPaste className="w-3.5 h-3.5" />
+                <span className="hidden xl:inline">קליטה חכמה</span>
+              </button>
+            )}
 
             {onToggleArchive && (
               <button
                 type="button"
                 onClick={() => onToggleArchive(caseItem)}
-                className={`px-3.5 py-2 rounded-xl text-sm font-extrabold flex items-center gap-1.5 border transition ${
+                className={`px-3 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-1.5 border transition ${
                   caseItem.is_archived
                     ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 border-amber-300'
                     : 'bg-white/10 hover:bg-white/20 text-white border-white/20'
@@ -1292,11 +1381,13 @@ export default function CaseDrawer({
                 }
               >
                 <CheckCircle2 className="w-4 h-4" />
-                {caseItem.is_archived ? 'שחזר מארכיון' : 'הושלם / ארכיון'}
+                <span className="hidden md:inline">
+                  {caseItem.is_archived ? 'שחזר מארכיון' : 'ארכיון'}
+                </span>
               </button>
             )}
 
-            {/* בחירת אזור הדפסה ספציפי בתיק (מסך נוכחי / תמצית נתונים עיקריים / משימות / תרשומות / תיק מלא) */}
+            {/* 4. בחירת אזור הדפסה ספציפי בתיק + כפתור הדפסה / PDF */}
             <div className="inline-flex items-center rounded-xl bg-white/15 border border-white/25 overflow-hidden">
               <select
                 value={selectedPrintZone}
@@ -1304,10 +1395,10 @@ export default function CaseDrawer({
                   setSelectedPrintZone(e.target.value as CasePrintZone)
                 }
                 aria-label="בחר אזור הדפסה בתיק"
-                className="px-2.5 py-2 bg-slate-900/80 text-white text-xs font-extrabold outline-none cursor-pointer border-l border-white/20"
+                className="px-2 py-2 bg-slate-900/80 text-white text-xs font-extrabold outline-none cursor-pointer border-l border-white/20"
               >
                 <option value="active_tab">
-                  🖨️ הדפס מסך נוכחי (
+                  🖨️ מסך נוכחי (
                   {activeTab === 'executive'
                     ? 'תמצית, משימות ויומן'
                     : activeTab === 'overview'
@@ -1340,6 +1431,7 @@ export default function CaseDrawer({
                   const snapshot: CaseItem = {
                     ...caseItem,
                     debtor_name: debtorName,
+                    subject,
                     id_or_hp: idOrHp,
                     case_number: caseNumber,
                     gush_helka: gushHelka,
@@ -1349,6 +1441,7 @@ export default function CaseDrawer({
                     municipality: municipality || null,
                     tags,
                     status,
+                    net_hamishpat_status: netStatus,
                     notes,
                     next_action_type: nextActionType,
                     next_action_description: nextActionDescription,
@@ -1424,14 +1517,15 @@ export default function CaseDrawer({
                     window.print();
                   }
                 }}
-                className="px-3.5 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs sm:text-sm font-extrabold flex items-center gap-1.5 transition"
-                title="הדפס את האזור שנבחר בתיק"
+                className="px-3 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs sm:text-sm font-extrabold flex items-center gap-1.5 transition"
+                title="הדפסה / PDF של האזור שנבחר בתיק"
               >
                 <Printer className="w-4 h-4" />
-                <span>הדפס</span>
+                <span>הדפסה / PDF</span>
               </button>
             </div>
 
+            {/* 5. כפתור ייצוא לאקסל */}
             <button
               type="button"
               onClick={() =>
@@ -1439,6 +1533,7 @@ export default function CaseDrawer({
                   {
                     ...caseItem,
                     debtor_name: debtorName,
+                    subject,
                     id_or_hp: idOrHp,
                     case_number: caseNumber,
                     gush_helka: gushHelka,
@@ -1447,6 +1542,7 @@ export default function CaseDrawer({
                     municipality: municipality || null,
                     tags,
                     status,
+                    net_hamishpat_status: netStatus,
                     notes,
                     next_action_type: nextActionType,
                     next_action_description: nextActionDescription,
@@ -1514,11 +1610,11 @@ export default function CaseDrawer({
                   logs
                 )
               }
-              className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-extrabold flex items-center gap-1.5 shadow-xs transition"
+              className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-extrabold flex items-center gap-1.5 shadow-xs transition"
               title="ייצא את התיק הנוכחי לקובץ אקסל (.xlsx)"
             >
               <FileSpreadsheet className="w-4 h-4" />
-              ייצוא לאקסל (.xlsx)
+              <span>ייצוא לאקסל</span>
             </button>
 
             <button
@@ -1617,7 +1713,28 @@ export default function CaseDrawer({
         </div>
 
         {/* גוף החלון לפי הלשונית הפעילה */}
-        <div className="flex-1 overflow-y-auto p-3 sm:p-4 bg-slate-50/70 case-drawer-scroll-body">
+        <div
+          className={`flex-1 overflow-y-auto p-3 sm:p-4 bg-slate-50/70 case-drawer-scroll-body ${
+            !isEditMode
+              ? ' [&_input]:pointer-events-none [&_input]:bg-slate-100 [&_textarea]:pointer-events-none [&_textarea]:bg-slate-100 [&_select]:pointer-events-none [&_select]:bg-slate-100'
+              : ''
+          }`}
+        >
+          {!isEditMode && (
+            <div className="mb-3 px-3.5 py-2 rounded-xl bg-amber-50 border border-amber-300 text-amber-950 text-xs font-extrabold flex items-center justify-between no-print">
+              <span className="flex items-center gap-1.5">
+                <Lock className="w-4 h-4 text-amber-700" />
+                מצב צפייה בלבד פעיל — שדות התיק נעולים לעריכה כדי למנוע שינוי בטעות.
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsEditMode(true)}
+                className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold transition"
+              >
+                פתח לעריכה 🔓
+              </button>
+            </div>
+          )}
           {/* ================================================================ */}
           {/* לשונית ראשית (Zero-Scroll 3-Part Executive Case Card):           */}
           {/* 1. תמצית התיק  |  2. משימות לביצוע מול מה שבוצע  |  3. יומן כרונולוגי */}
