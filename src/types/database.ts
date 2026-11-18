@@ -111,6 +111,21 @@ export type CondominiumFitStatus =
 
 export type MilestoneStatus = 'done' | 'in_progress' | 'upcoming';
 
+export type NetHaMishpatStatus =
+  | 'ללא מעקב פעיל'
+  | 'ממתין להחלטת שופט/רשם'
+  | 'הוגשה בקשה בנט המשפט'
+  | 'נדרשת תגובת צד שכנגד'
+  | 'התקבלה החלטה';
+
+export const NET_HAMISHPAT_STATUSES: NetHaMishpatStatus[] = [
+  'ללא מעקב פעיל',
+  'ממתין להחלטת שופט/רשם',
+  'הוגשה בקשה בנט המשפט',
+  'נדרשת תגובת צד שכנגד',
+  'התקבלה החלטה',
+];
+
 export type CustomFieldType = 'text' | 'date' | 'boolean' | 'reminder';
 
 export type CustomFieldScope = 'case' | 'category' | 'all';
@@ -187,6 +202,7 @@ export interface UserSession {
 export interface CaseItem {
   id: string;
   debtor_name: string;
+  subject?: string; // נושא / מהות התיק (מאפשר הזנה מהירה גם ללא מספר תיק)
   id_or_hp: string;
   case_number: string;
   gush_helka?: string; // גוש / חלקה / תת-חלקה (להעתקה מהירה וזיהוי נכס)
@@ -196,6 +212,7 @@ export interface CaseItem {
   municipality?: string | null;
   tags: CaseTag[];
   status: CaseStatus;
+  net_hamishpat_status?: NetHaMishpatStatus; // מעקב נט המשפט והחלטות ממתינות
   notes: string;
   next_action_type: NextActionType;
   next_action_description: string;

@@ -43,6 +43,8 @@ import {
   CaseDistrict,
   CaseItem,
   MunicipalitySetting,
+  NET_HAMISHPAT_STATUSES,
+  NetHaMishpatStatus,
   SystemUserAccount,
   UserSession,
   WorkerPermissionsConfig,
@@ -76,6 +78,7 @@ export type ExecutiveKpiType =
   | 'urgent_tasks'
   | 'reminders_week'
   | 'court_submissions'
+  | 'net_hamishpat'
   | 'delayed_cases'
   | 'legal_fees';
 
@@ -186,12 +189,7 @@ export function KpiDetailsModal({
 
   if (!isOpen || !kpiType) return null;
 
-  const preferredTab: DrawerTab =
-    kpiType === 'urgent_tasks'
-      ? 'tasks'
-      : kpiType === 'postponed_hearings'
-      ? 'logs'
-      : 'overview';
+  const preferredTab: DrawerTab = 'executive';
 
   const handleCopyAllList = async () => {
     const lines = casesList.map((c, idx) => {
@@ -370,6 +368,37 @@ export function KpiDetailsModal({
                       {kpiType === 'court_submissions' && (
                         <span className="px-2 py-0.5 rounded bg-purple-100 text-purple-900 border border-purple-300 text-xs font-extrabold">
                           זמן היערכות מומלץ: {prepDays} ימים מראש
+                        </span>
+                      )}
+
+                      {kpiType === 'net_hamishpat' && (
+                        <span
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1.5"
+                        >
+                          <select
+                            value={c.net_hamishpat_status || 'ללא מעקב פעיל'}
+                            onChange={async (e) => {
+                              const nextNet = e.target
+                                .value as NetHaMishpatStatus;
+                              await updateCaseItem(c.id, {
+                                net_hamishpat_status: nextNet,
+                              });
+                              if (onCasesUpdated) {
+                                const all = await import(
+                                  '@/lib/dataService'
+                                ).then((m) => m.fetchAllCases());
+                                onCasesUpdated(all);
+                              }
+                            }}
+                            className="px-2.5 py-0.5 rounded-lg bg-indigo-50 text-indigo-950 border border-indigo-300 text-xs font-extrabold outline-none"
+                          >
+                            {NET_HAMISHPAT_STATUSES.map((ns) => (
+                              <option key={ns} value={ns}>
+                                {ns}
+                              </option>
+                            ))}
+                          </select>
                         </span>
                       )}
                     </div>
@@ -645,6 +674,33 @@ export function ReportsAndChartsModal({
       };
     });
 
+    // 7. סטטוס משימות: פתוחות לביצוע מול בוצעו ✓
+    const totalOpenTasksCount = activeCases.reduce(
+      (sum, c) =>
+        sum + (c.milestones || []).filter((m) => m.status !== 'done').length,
+      0
+    );
+    const totalDoneTasksCount = activeCases.reduce(
+      (sum, c) =>
+        sum + (c.milestones || []).filter((m) => m.status === 'done').length,
+      0
+    );
+    const totalTasksAll = Math.max(1, totalOpenTasksCount + totalDoneTasksCount);
+    const doneTasksPct = Math.round((totalDoneTasksCount / totalTasksAll) * 100);
+    const openTasksPct = 100 - doneTasksPct;
+
+    // 8. פילוח מעקב נט המשפט והחלטות ממתינות
+    const byNetHaMishpat = NET_HAMISHPAT_STATUSES.map((ns) => {
+      const count = activeCases.filter(
+        (c) => (c.net_hamishpat_status || 'ללא מעקב פעיל') === ns
+      ).length;
+      return {
+        netStatus: ns,
+        count,
+        pct: Math.round((count / total) * 100),
+      };
+    });
+
     return {
       total: activeCases.length,
       overdueCount,
@@ -654,6 +710,11 @@ export function ReportsAndChartsModal({
       byDistrict,
       byStage,
       byDelivery,
+      totalOpenTasksCount,
+      totalDoneTasksCount,
+      doneTasksPct,
+      openTasksPct,
+      byNetHaMishpat,
       hearings: [
         {
           bucket: 'דיונים ב-7 הימים הקרובים' as HearingAnalyticsBucket,
@@ -1437,6 +1498,80 @@ export function ReportsAndChartsModal({
                     </button>
                   );
                 })}
+              </div>
+            </div>
+
+            {/* תרשים 7: סטטוס משימות (פתוחות מול בוצעו ✓) */}
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 border-t-4 border-t-purple-600 shadow-2xs space-y-2.5">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-extrabold text-slate-900 flex items-center gap-1.5">
+                  <Check className="w-4 h-4 text-purple-600" />
+                  7. מאזן ביצוע משימות (לביצוע מול מה שבוצע ✓)
+                </h4>
+              </div>
+              <div className="space-y-2.5 pt-1">
+                <div className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200">
+                  <div className="flex items-center justify-between text-xs font-extrabold mb-1">
+                    <span className="text-amber-950">משימות פתוחות לביצוע</span>
+                    <span className="font-mono text-amber-900">
+                      {analytics.totalOpenTasksCount} ({analytics.openTasksPct}%)
+                    </span>
+                  </div>
+                  <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-amber-500 rounded-full"
+                      style={{ width: `${analytics.openTasksPct}%` }}
+                    />
+                  </div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-emerald-50/70 border border-emerald-200">
+                  <div className="flex items-center justify-between text-xs font-extrabold mb-1">
+                    <span className="text-emerald-950">משימות שבוצעו ✓</span>
+                    <span className="font-mono text-emerald-900">
+                      {analytics.totalDoneTasksCount} ({analytics.doneTasksPct}%)
+                    </span>
+                  </div>
+                  <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-emerald-600 rounded-full"
+                      style={{ width: `${analytics.doneTasksPct}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* תרשים 8: מעקב נט המשפט והחלטות ממתינות */}
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 border-t-4 border-t-indigo-700 shadow-2xs space-y-2 md:col-span-2">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-extrabold text-slate-900 flex items-center gap-1.5">
+                  <Gavel className="w-4 h-4 text-indigo-700" />
+                  8. מעקב נט המשפט והחלטות ממתינות
+                </h4>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
+                {analytics.byNetHaMishpat.map((n) => (
+                  <div
+                    key={n.netStatus}
+                    className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-1.5"
+                  >
+                    <div className="text-xs font-extrabold text-slate-900 truncate">
+                      {n.netStatus}
+                    </div>
+                    <div className="flex items-center justify-between text-xs font-mono font-extrabold text-indigo-900">
+                      <span>{n.count} תיקים</span>
+                      <span>{n.pct}%</span>
+                    </div>
+                    <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-indigo-600 rounded-full"
+                        style={{
+                          width: `${Math.max(n.pct, n.count > 0 ? 8 : 0)}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>

@@ -17,6 +17,7 @@ import {
   CustomFieldType,
   FullSystemBackup,
   MunicipalitySetting,
+  NetHaMishpatStatus,
   SystemUserAccount,
   UserSession,
   WorkerPermissionsConfig,
@@ -281,9 +282,18 @@ function inferDefaultDistrict(raw: Partial<CaseItem>): CaseDistrict {
 // לעולם אינה דורסת או מאפסת שדות קיימים בתיק — רק מוסיפה שדות ברירת מחדל חסרים
 // ============================================================================
 export function safeNormalizeCaseItem(raw: Partial<CaseItem>): CaseItem {
+  const defaultNetStatus: NetHaMishpatStatus =
+    raw.net_hamishpat_status ||
+    (raw.status === 'ממתין להחלטה'
+      ? 'ממתין להחלטת שופט/רשם'
+      : raw.status === 'הגשה ממתינה לביהמ"ש'
+      ? 'הוגשה בקשה בנט המשפט'
+      : 'ללא מעקב פעיל');
+
   return {
     id: raw.id || generateId(),
     debtor_name: raw.debtor_name || 'תיק ללא שם',
+    subject: raw.subject ?? '',
     id_or_hp: raw.id_or_hp ?? '',
     case_number: raw.case_number ?? '',
     gush_helka: raw.gush_helka ?? '',
@@ -293,6 +303,7 @@ export function safeNormalizeCaseItem(raw: Partial<CaseItem>): CaseItem {
     municipality: raw.municipality ?? null,
     tags: Array.isArray(raw.tags) ? raw.tags : [],
     status: raw.status || 'פעיל',
+    net_hamishpat_status: defaultNetStatus,
     notes: raw.notes ?? '',
     next_action_type: raw.next_action_type || 'אחר',
     next_action_description: raw.next_action_description ?? '',

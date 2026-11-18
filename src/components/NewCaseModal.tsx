@@ -10,6 +10,9 @@ import {
   Gavel,
   Briefcase,
   Home,
+  ChevronDown,
+  ChevronUp,
+  Zap,
 } from 'lucide-react';
 import {
   CASE_CATEGORIES,
@@ -26,7 +29,9 @@ import {
   INSOLVENCY_DEBTOR_TYPES,
   InsolvencyDebtorType,
   MunicipalitySetting,
+  NET_HAMISHPAT_STATUSES,
   NEXT_ACTION_TYPES,
+  NetHaMishpatStatus,
   NextActionType,
 } from '@/types/database';
 import { createCaseItem, generateId } from '@/lib/dataService';
@@ -48,6 +53,7 @@ export default function NewCaseModal({
   defaultCategory = 'גבייה',
 }: NewCaseModalProps) {
   const [debtorName, setDebtorName] = useState('');
+  const [subject, setSubject] = useState('');
   const [idOrHp, setIdOrHp] = useState('');
   const [caseNumber, setCaseNumber] = useState('');
   const [gushHelka, setGushHelka] = useState('');
@@ -56,6 +62,9 @@ export default function NewCaseModal({
   const [municipality, setMunicipality] = useState('');
   const [tags, setTags] = useState<CaseTag[]>([]);
   const [status, setStatus] = useState<CaseStatus>('לפני תביעה');
+  const [netStatus, setNetStatus] =
+    useState<NetHaMishpatStatus>('ללא מעקב פעיל');
+  const [showAdvancedFields, setShowAdvancedFields] = useState(false);
   const [notes, setNotes] = useState('');
   const [nextActionType, setNextActionType] = useState<NextActionType>(
     'פתיחת תביעה בהוצל"פ'
@@ -385,18 +394,21 @@ export default function NewCaseModal({
 
       const created = await createCaseItem({
         debtor_name: debtorName.trim(),
+        subject: subject.trim(),
         id_or_hp: idOrHp.trim(),
         case_number: caseNumber.trim(),
         gush_helka: gushHelka.trim() || propertyDetails.trim(),
         category,
-        current_stage: currentStage.trim(),
+        current_stage: currentStage.trim() || subject.trim() || status,
         municipality: municipality.trim() || null,
         tags: finalTags,
         status,
-        notes: notes.trim(),
+        net_hamishpat_status: netStatus,
+        notes: notes.trim() || subject.trim(),
         next_action_type: nextActionType,
         next_action_description:
           nextActionDescription.trim() ||
+          subject.trim() ||
           (execTargetDate
             ? 'חלוף 30 יום מאישור מסירה — לפתוח תביעה בהוצל"פ'
             : ''),
@@ -450,6 +462,7 @@ export default function NewCaseModal({
 
       onCreated(created);
       setDebtorName('');
+      setSubject('');
       setIdOrHp('');
       setCaseNumber('');
       setGushHelka('');
@@ -458,6 +471,7 @@ export default function NewCaseModal({
       setNotes('');
       setNextActionDescription('');
       setNextDueDate('');
+      setNetStatus('ללא מעקב פעיל');
       onClose();
     } catch (err) {
       console.error('Error creating case:', err);
@@ -474,10 +488,15 @@ export default function NewCaseModal({
         className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden"
       >
         <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
-          <h2 className="text-lg font-extrabold flex items-center gap-2">
-            <Plus className="w-5 h-5 text-blue-400" />
-            הקמת תיק חדש באחד מ-4 עולמות התוכן
-          </h2>
+          <div>
+            <h2 className="text-lg font-extrabold flex items-center gap-2">
+              <Zap className="w-5 h-5 text-blue-400" />
+              <span>הזנה מהירה / תיק חדש (ב-10 שניות — גם ללא מספר תיק)</span>
+            </h2>
+            <p className="text-xs text-slate-300 mt-0.5">
+              הזן שם לקוח/עניין, נושא וקטגוריה לפתיחה מיידית. מספר תיק ושדות מתקדמים הם רשות וניתן להשלים בהמשך.
+            </p>
+          </div>
           <button
             type="button"
             onClick={onClose}
@@ -494,7 +513,7 @@ export default function NewCaseModal({
           {/* בחירת אחד מ-4 תחומי התיקים */}
           <div>
             <label className="block text-sm font-extrabold text-slate-800 mb-2">
-              בחר את עולם התוכן של התיק (יטען אוטומטית את הצ&apos;ק-ליסט והשדות הייעודיים):
+              1. בחר קטגוריה *:
             </label>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
               {CASE_CATEGORIES.map((cat) => {
@@ -526,118 +545,202 @@ export default function NewCaseModal({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            <div className="sm:col-span-2">
-              <label className="block text-sm font-bold text-slate-700 mb-1">
-                שם חייב / חברה / פרויקט ודירה *
-              </label>
-              <input
-                type="text"
-                required
-                autoFocus
-                value={debtorName}
-                onChange={(e) => setDebtorName(e.target.value)}
-                placeholder="לדוגמה: ישראל ישראלי בע״מ / פרויקט נופי השרון דירה 12"
-                className="w-full p-2.5 text-sm rounded-lg border border-slate-300 focus:border-blue-600 outline-none font-bold"
-              />
+          {/* הזנה מהירה ב-10 שניות: שם לקוח + נושא + מספר תיק (רשות) */}
+          <div className="p-4 rounded-xl bg-blue-50/40 border-2 border-blue-200 space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-sm font-extrabold text-slate-900 mb-1">
+                  2. שם לקוח / חייב / חברה / פרויקט *
+                </label>
+                <input
+                  type="text"
+                  required
+                  autoFocus
+                  value={debtorName}
+                  onChange={(e) => setDebtorName(e.target.value)}
+                  placeholder="לדוגמה: ישראל ישראלי בע״מ / פרויקט נופי השרון"
+                  className="w-full p-2.5 text-sm rounded-lg border border-slate-300 bg-white focus:border-blue-600 outline-none font-bold"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-extrabold text-slate-900 mb-1">
+                  3. נושא התיק / מהות העניין *
+                </label>
+                <input
+                  type="text"
+                  value={subject}
+                  onChange={(e) => setSubject(e.target.value)}
+                  placeholder="למשל: הכנת מכתב התראה / תביעת חוב / רישום זכויות"
+                  className="w-full p-2.5 text-sm rounded-lg border border-slate-300 bg-white focus:border-blue-600 outline-none font-bold"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1">
+                  מספר תיק (רשות — ניתן להשלים בהמשך)
+                </label>
+                <input
+                  type="text"
+                  value={caseNumber}
+                  onChange={(e) => setCaseNumber(e.target.value)}
+                  placeholder="אופציונלי (הוצל״פ / ביהמ״ש)"
+                  className="w-full p-2.5 text-sm rounded-lg border border-slate-300 bg-white focus:border-blue-600 outline-none font-mono"
+                />
+              </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">
-                ת&quot;ז / ח&quot;פ
-              </label>
-              <input
-                type="text"
-                value={idOrHp}
-                onChange={(e) => setIdOrHp(e.target.value)}
-                placeholder="9 ספרות"
-                className="w-full p-2.5 text-sm rounded-lg border border-slate-300 focus:border-blue-600 outline-none font-mono"
-              />
-            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-1">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  סוג פעולה קרובה
+                </label>
+                <select
+                  value={nextActionType}
+                  onChange={(e) =>
+                    setNextActionType(e.target.value as NextActionType)
+                  }
+                  className="w-full p-2 text-xs rounded-lg border border-slate-300 bg-white outline-none font-bold"
+                >
+                  {NEXT_ACTION_TYPES.map((a) => (
+                    <option key={a} value={a}>
+                      {a}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">
-                מספר תיק (ביהמ&quot;ש / הוצל&quot;פ)
-              </label>
-              <input
-                type="text"
-                value={caseNumber}
-                onChange={(e) => setCaseNumber(e.target.value)}
-                placeholder="הוצל״פ / חדל״פ..."
-                className="w-full p-2.5 text-sm rounded-lg border border-slate-300 focus:border-blue-600 outline-none font-mono"
-              />
-            </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  תאריך יעד / מועד דיון (רשות)
+                </label>
+                <input
+                  type="date"
+                  value={nextDueDate}
+                  onChange={(e) => setNextDueDate(e.target.value)}
+                  className="w-full p-2 text-xs rounded-lg border border-slate-300 bg-white outline-none font-bold"
+                />
+              </div>
 
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">
-                גוש / חלקה / תת-חלקה
-              </label>
-              <input
-                type="text"
-                value={gushHelka}
-                onChange={(e) => setGushHelka(e.target.value)}
-                placeholder="למשל: גוש 6214 חלקה 88"
-                className="w-full p-2.5 text-sm rounded-lg border border-slate-300 focus:border-blue-600 outline-none"
-              />
-            </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  מעקב נט המשפט
+                </label>
+                <select
+                  value={netStatus}
+                  onChange={(e) =>
+                    setNetStatus(e.target.value as NetHaMishpatStatus)
+                  }
+                  className="w-full p-2 text-xs rounded-lg border border-indigo-300 bg-white outline-none font-bold text-indigo-950"
+                >
+                  {NET_HAMISHPAT_STATUSES.map((ns) => (
+                    <option key={ns} value={ns}>
+                      {ns}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">
-                עירייה / רשות מקומית
-              </label>
-              <input
-                type="text"
-                list="muni-list-new-modal"
-                value={municipality}
-                onChange={(e) => setMunicipality(e.target.value)}
-                placeholder="למשל: עיריית פתח תקווה"
-                className="w-full p-2.5 text-sm rounded-lg border border-slate-300 focus:border-blue-600 outline-none"
-              />
-              <datalist id="muni-list-new-modal">
-                {municipalitiesSettings.map((m) => (
-                  <option key={m.id} value={m.municipality_name} />
-                ))}
-              </datalist>
-            </div>
-
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">
-                השלב הנוכחי בתיק
-              </label>
-              <input
-                type="text"
-                value={currentStage}
-                onChange={(e) => setCurrentStage(e.target.value)}
-                placeholder={
-                  category === 'גבייה'
-                    ? 'למשל: לפני תביעה - בדיקות מקדמיות'
-                    : category === 'חדל"פ'
-                    ? 'למשל: מינוי נאמן והגשת תביעת חוב'
-                    : category === 'חברות'
-                    ? 'למשל: הפקדת התחייבות עצמית ואיתור נכסים'
-                    : 'למשל: אישור מפרקים ובדיקת תצ״ר'
-                }
-                className="w-full p-2.5 text-sm rounded-lg border border-slate-300 focus:border-blue-600 outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">
-                סטטוס תיק
-              </label>
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value as CaseStatus)}
-                className="w-full p-2.5 text-sm rounded-lg border border-slate-300 bg-white focus:border-blue-600 outline-none font-bold"
-              >
-                {CASE_STATUSES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  סטטוס תיק
+                </label>
+                <select
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value as CaseStatus)}
+                  className="w-full p-2 text-xs rounded-lg border border-slate-300 bg-white focus:border-blue-600 outline-none font-bold"
+                >
+                  {CASE_STATUSES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
+
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setShowAdvancedFields((v) => !v)}
+              className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-extrabold inline-flex items-center gap-1.5 transition"
+            >
+              {showAdvancedFields ? (
+                <>
+                  <ChevronUp className="w-4 h-4" />
+                  <span>הסתר שדות מתקדמים (ת&quot;ז, סכומי חוב, נאמן, מודד)</span>
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="w-4 h-4" />
+                  <span>הצג שדות מתקדמים לפי תחום (ת&quot;ז, סכומי חוב, גח&quot;לת, נאמן, תצ&quot;ר)</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {showAdvancedFields && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">
+                    ת&quot;ז / ח&quot;פ
+                  </label>
+                  <input
+                    type="text"
+                    value={idOrHp}
+                    onChange={(e) => setIdOrHp(e.target.value)}
+                    placeholder="9 ספרות"
+                    className="w-full p-2.5 text-sm rounded-lg border border-slate-300 focus:border-blue-600 outline-none font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">
+                    גוש / חלקה / תת-חלקה
+                  </label>
+                  <input
+                    type="text"
+                    value={gushHelka}
+                    onChange={(e) => setGushHelka(e.target.value)}
+                    placeholder="למשל: גוש 6214 חלקה 88"
+                    className="w-full p-2.5 text-sm rounded-lg border border-slate-300 focus:border-blue-600 outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">
+                    עירייה / רשות מקומית
+                  </label>
+                  <input
+                    type="text"
+                    list="muni-list-new-modal"
+                    value={municipality}
+                    onChange={(e) => setMunicipality(e.target.value)}
+                    placeholder="למשל: עיריית פתח תקווה"
+                    className="w-full p-2.5 text-sm rounded-lg border border-slate-300 focus:border-blue-600 outline-none"
+                  />
+                  <datalist id="muni-list-new-modal">
+                    {municipalitiesSettings.map((m) => (
+                      <option key={m.id} value={m.municipality_name} />
+                    ))}
+                  </datalist>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">
+                    השלב הנוכחי בתיק
+                  </label>
+                  <input
+                    type="text"
+                    value={currentStage}
+                    onChange={(e) => setCurrentStage(e.target.value)}
+                    placeholder="למשל: לפני תביעה - בדיקות מקדמיות"
+                    className="w-full p-2.5 text-sm rounded-lg border border-slate-300 focus:border-blue-600 outline-none"
+                  />
+                </div>
+              </div>
 
           {matchedMuni && (
             <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-200 text-sm space-y-1">
@@ -1072,10 +1175,12 @@ export default function NewCaseModal({
               />
             </div>
           </div>
+          </div>
+          )}
 
           <div>
             <label className="block text-sm font-bold text-slate-700 mb-1">
-              הערות ליבה בתיק
+              תמצית התיק / הערות ליבה (רשות)
             </label>
             <textarea
               rows={2}

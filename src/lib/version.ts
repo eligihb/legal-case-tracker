@@ -1,3 +1,3 @@
-export const APP_VERSION = '7.0';
-export const APP_VERSION_NAME = 'Pure Executive Command Center';
-export const APP_UPDATED_AT = '17/11/2026 10:00';
+export const APP_VERSION = '8.0';
+export const APP_VERSION_NAME = 'Zero-Scroll Executive Pulse & Smart Net-HaMishpat Capture';
+export const APP_UPDATED_AT = '18/11/2026 18:20';

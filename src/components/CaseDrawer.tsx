@@ -27,6 +27,12 @@ import {
   Briefcase,
   Sparkles,
   Flame,
+  Pencil,
+  Check,
+  ArrowUpDown,
+  ChevronDown,
+  ChevronUp,
+  Columns3,
 } from 'lucide-react';
 import {
   CASE_CATEGORIES,
@@ -56,7 +62,9 @@ import {
   MilestoneStatus,
   MonthlyReductionEntry,
   MunicipalitySetting,
+  NET_HAMISHPAT_STATUSES,
   NEXT_ACTION_TYPES,
+  NetHaMishpatStatus,
   NextActionType,
   TASK_URGENCIES,
   TaskUrgency,
@@ -86,7 +94,7 @@ import { exportSingleCaseToXlsx } from './ExcelExportModal';
 import CopyButton from './CopyButton';
 import { InlineCustomFieldsList } from './CustomFieldsManager';
 
-export type DrawerTab = 'overview' | 'tasks' | 'logs';
+export type DrawerTab = 'executive' | 'overview' | 'tasks' | 'logs';
 export type CasePrintZone =
   | 'summary'
   | 'active_tab'
@@ -117,7 +125,7 @@ interface CaseDrawerProps {
 
 export default function CaseDrawer({
   caseItem,
-  initialTab = 'overview',
+  initialTab = 'executive',
   onClose,
   onCaseUpdated,
   onAllCasesUpdated,
@@ -130,12 +138,16 @@ export default function CaseDrawer({
   onOpenMuniSettingsModal,
 }: CaseDrawerProps) {
   const isAdmin = currentUser.role === 'admin';
-  const [activeTab, setActiveTab] = useState<DrawerTab>('overview');
+  const [activeTab, setActiveTab] = useState<DrawerTab>('executive');
   const [selectedPrintZone, setSelectedPrintZone] =
     useState<CasePrintZone>('active_tab');
   const [rshuSubTab, setRshuSubTab] = useState<'pre_suit' | 'execution'>(
     'pre_suit'
   );
+  const [logSortOrder, setLogSortOrder] = useState<'desc' | 'asc'>('desc');
+  const [showCompletedTasksExec, setShowCompletedTasksExec] = useState(true);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [newTaskDueDate, setNewTaskDueDate] = useState('');
 
   const [logs, setLogs] = useState<CaseLog[]>([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
@@ -145,6 +157,7 @@ export default function CaseDrawer({
 
   // שדות ליבה של התיק
   const [debtorName, setDebtorName] = useState('');
+  const [subject, setSubject] = useState('');
   const [idOrHp, setIdOrHp] = useState('');
   const [caseNumber, setCaseNumber] = useState('');
   const [gushHelka, setGushHelka] = useState('');
@@ -154,6 +167,8 @@ export default function CaseDrawer({
   const [municipality, setMunicipality] = useState('');
   const [tags, setTags] = useState<CaseTag[]>([]);
   const [status, setStatus] = useState<CaseStatus>('לפני תביעה');
+  const [netStatus, setNetStatus] =
+    useState<NetHaMishpatStatus>('ללא מעקב פעיל');
   const [notes, setNotes] = useState('');
   const [nextActionType, setNextActionType] = useState<NextActionType>('אחר');
   const [nextActionDescription, setNextActionDescription] = useState('');
@@ -283,7 +298,7 @@ export default function CaseDrawer({
 
   useEffect(() => {
     if (caseItem) {
-      setActiveTab(initialTab || 'overview');
+      setActiveTab(initialTab || 'executive');
     }
   }, [caseItem?.id, initialTab]);
 
@@ -293,12 +308,13 @@ export default function CaseDrawer({
       return;
     }
     initializedCaseIdRef.current = null;
-    setActiveTab(initialTab || 'overview');
+    setActiveTab(initialTab || 'executive');
     setRshuSubTab(
       caseItem.status === 'לפני תביעה' ? 'pre_suit' : 'execution'
     );
 
     setDebtorName(caseItem.debtor_name);
+    setSubject(caseItem.subject || '');
     setIdOrHp(caseItem.id_or_hp || '');
     setCaseNumber(caseItem.case_number || '');
     setGushHelka(caseItem.gush_helka || caseItem.property_details || '');
@@ -313,6 +329,7 @@ export default function CaseDrawer({
     setMunicipality(caseItem.municipality || '');
     setTags(caseItem.tags || []);
     setStatus(caseItem.status);
+    setNetStatus(caseItem.net_hamishpat_status || 'ללא מעקב פעיל');
     setNotes(caseItem.notes || '');
     setNextActionType(caseItem.next_action_type || 'אחר');
     setNextActionDescription(caseItem.next_action_description || '');
@@ -456,6 +473,7 @@ export default function CaseDrawer({
     try {
       const payload: Partial<Omit<CaseItem, 'id' | 'updated_at'>> = {
         debtor_name: debtorName.trim(),
+        subject: subject.trim(),
         id_or_hp: idOrHp.trim(),
         case_number: caseNumber.trim(),
         gush_helka: gushHelka.trim(),
@@ -465,6 +483,7 @@ export default function CaseDrawer({
         municipality: municipality.trim() || null,
         tags,
         status,
+        net_hamishpat_status: netStatus,
         notes: notes.trim(),
         next_action_type: nextActionType,
         next_action_description: nextActionDescription.trim(),
@@ -555,6 +574,7 @@ export default function CaseDrawer({
     return () => clearTimeout(timer);
   }, [
     debtorName,
+    subject,
     idOrHp,
     caseNumber,
     gushHelka,
@@ -564,6 +584,7 @@ export default function CaseDrawer({
     municipality,
     tags,
     status,
+    netStatus,
     notes,
     nextActionType,
     nextActionDescription,
@@ -898,6 +919,20 @@ export default function CaseDrawer({
     );
   };
 
+  const handleMilestoneDueDateChange = (msId: string, dueDate: string) => {
+    setMilestones((prev) =>
+      prev.map((m) =>
+        m.id === msId
+          ? {
+              ...m,
+              due_date: dueDate || null,
+              updated_by: currentUser.displayName,
+            }
+          : m
+      )
+    );
+  };
+
   const handleAddMilestone = () => {
     if (!newMilestoneTitle.trim()) return;
     const today = new Date().toISOString().split('T')[0];
@@ -907,13 +942,15 @@ export default function CaseDrawer({
       status: 'in_progress',
       urgency: newMilestoneUrgency,
       planned_days: Number(newMilestonePlannedDays) || 7,
+      due_date: newTaskDueDate || null,
       started_at: today,
       completed_at: null,
       days_spent: 0,
       updated_by: currentUser.displayName,
     };
-    setMilestones((prev) => [...prev, created]);
+    setMilestones((prev) => [created, ...prev]);
     setNewMilestoneTitle('');
+    setNewTaskDueDate('');
   };
 
   const handleDeleteMilestone = (msId: string) => {
@@ -1131,6 +1168,15 @@ export default function CaseDrawer({
     0
   );
 
+  const openMilestones = milestones.filter((m) => m.status !== 'done');
+  const completedMilestones = milestones.filter((m) => m.status === 'done');
+
+  const sortedLogs = [...logs].sort((a, b) => {
+    const tA = new Date(a.log_date).getTime();
+    const tB = new Date(b.log_date).getTime();
+    return logSortOrder === 'desc' ? tB - tA : tA - tB;
+  });
+
   return (
     <div className="fixed inset-0 z-50 overflow-hidden bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-0 sm:p-4 case-drawer-print-wrapper">
       <div className="fixed inset-0 no-print" onClick={onClose} />
@@ -1262,8 +1308,10 @@ export default function CaseDrawer({
               >
                 <option value="active_tab">
                   🖨️ הדפס מסך נוכחי (
-                  {activeTab === 'overview'
-                    ? 'מבט על ונתונים'
+                  {activeTab === 'executive'
+                    ? 'תמצית, משימות ויומן'
+                    : activeTab === 'overview'
+                    ? 'שדות תחום מורחבים'
                     : activeTab === 'tasks'
                     ? 'משימות וזמנים'
                     : 'תרשומות וארכות'}
@@ -1484,79 +1532,675 @@ export default function CaseDrawer({
           </div>
         </div>
 
-        {/* סרגל 3 הלשוניות הפנימיות (Zero-Scroll Tabs) */}
-        <div className="bg-slate-100 border-b border-slate-200 px-3 sm:px-6 py-2 sm:py-2.5 flex flex-wrap items-center justify-between gap-2 shrink-0 no-print">
+        {/* סרגל הלשוניות הפנימיות (Zero-Scroll Tabs) */}
+        <div className="bg-slate-100 border-b border-slate-200 px-3 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-2 shrink-0 no-print">
           <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap w-full sm:w-auto">
             <button
               type="button"
+              onClick={() => setActiveTab('executive')}
+              className={`px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-1.5 transition ${
+                activeTab === 'executive'
+                  ? 'bg-[#0F172A] text-white shadow-sm'
+                  : 'bg-white text-slate-700 hover:bg-slate-200/70 border border-slate-200'
+              }`}
+            >
+              <Columns3 className="w-4 h-4 text-sky-400 shrink-0" />
+              <span>כרטיס תיק מרכזי (תמצית • משימות • יומן כרונולוגי)</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setActiveTab('overview')}
-              className={`px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-[15px] font-extrabold flex items-center gap-1.5 sm:gap-2 transition ${
+              className={`px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-1.5 transition ${
                 activeTab === 'overview'
-                  ? 'bg-slate-900 text-white shadow-sm'
+                  ? 'bg-[#0F172A] text-white shadow-sm'
                   : 'bg-white text-slate-700 hover:bg-slate-200/70 border border-slate-200'
               }`}
             >
               <Milestone className="w-4 h-4 text-blue-400 shrink-0" />
-              <span>1. מבט על ושדות התחום</span>
+              <span>שדות תחום מורחבים ({category})</span>
             </button>
 
             <button
               type="button"
               onClick={() => setActiveTab('tasks')}
-              className={`px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-[15px] font-extrabold flex items-center gap-1.5 sm:gap-2 transition ${
+              className={`px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-1.5 transition ${
                 activeTab === 'tasks'
-                  ? 'bg-slate-900 text-white shadow-sm'
+                  ? 'bg-[#0F172A] text-white shadow-sm'
                   : 'bg-white text-slate-700 hover:bg-slate-200/70 border border-slate-200'
               }`}
             >
               <ListChecks className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>2. משימות וזמנים ({doneCount}/{milestones.length})</span>
+              <span>טבלת זמנים ({doneCount}/{milestones.length})</span>
             </button>
 
             <button
               type="button"
               onClick={() => setActiveTab('logs')}
-              className={`px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-[15px] font-extrabold flex items-center gap-1.5 sm:gap-2 transition ${
+              className={`px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-1.5 transition ${
                 activeTab === 'logs'
-                  ? 'bg-slate-900 text-white shadow-sm'
+                  ? 'bg-[#0F172A] text-white shadow-sm'
                   : 'bg-white text-slate-700 hover:bg-slate-200/70 border border-slate-200'
               }`}
             >
               <MessageSquare className="w-4 h-4 text-amber-400 shrink-0" />
-              <span>3. תרשומות וארכות ({logs.length})</span>
+              <span>ארכיון תרשומות ({logs.length})</span>
             </button>
 
             {onOpenAddCustomField && (
               <button
                 type="button"
                 onClick={() => onOpenAddCustomField(caseItem)}
-                className="px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-extrabold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs flex items-center gap-1.5 transition"
+                className="px-3 py-2 rounded-xl text-xs font-extrabold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs flex items-center gap-1.5 transition"
               >
-                <Sparkles className="w-4 h-4 text-amber-300 shrink-0" />
-                <span>+ הוסף שדה מעקב / תזכורת</span>
+                <Sparkles className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                <span>+ שדה מעקב</span>
               </button>
             )}
           </div>
 
           <div className="flex items-center gap-2">
             <span className="text-xs text-slate-500 font-bold hidden sm:inline">
-              חתימה אוטומטית: <strong className="text-slate-800">{currentUser.displayName}</strong>
+              משתמש: <strong className="text-slate-800">{currentUser.displayName}</strong>
             </span>
             {isAdmin && (
               <button
                 type="button"
                 onClick={handleDeleteEntireCase}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold text-red-600 hover:bg-red-50 border border-red-200 flex items-center gap-1 transition"
+                className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-red-600 hover:bg-red-50 border border-red-200 flex items-center gap-1 transition"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                מחק תיק (מנהל)
+                מחק תיק
               </button>
             )}
           </div>
         </div>
 
         {/* גוף החלון לפי הלשונית הפעילה */}
-        <div className="flex-1 overflow-y-auto p-3 sm:p-6 bg-slate-50/50 case-drawer-scroll-body">
+        <div className="flex-1 overflow-y-auto p-3 sm:p-4 bg-slate-50/70 case-drawer-scroll-body">
+          {/* ================================================================ */}
+          {/* לשונית ראשית (Zero-Scroll 3-Part Executive Case Card):           */}
+          {/* 1. תמצית התיק  |  2. משימות לביצוע מול מה שבוצע  |  3. יומן כרונולוגי */}
+          {/* ================================================================ */}
+          {activeTab === 'executive' && (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 h-full lg:min-h-[68dvh]">
+              {/* ============================================================ */}
+              {/* חלק 1 (ימין): תמצית התיק (Case Executive Summary)            */}
+              {/* ============================================================ */}
+              <div className="lg:col-span-4 bg-white rounded-2xl border border-slate-200 shadow-2xs p-4 flex flex-col justify-between space-y-3">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+                    <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                      <FileText className="w-5 h-5 text-blue-600" />
+                      <span>1. תמצית התיק</span>
+                    </h3>
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-blue-50 text-blue-900 border border-blue-200">
+                      {progressPercent}% הושלם ({doneCount}/{milestones.length})
+                    </span>
+                  </div>
+
+                  {/* תיבת תמצית בולטת ב-3-4 שורות */}
+                  <div className="p-3 rounded-xl bg-blue-50/50 border-2 border-blue-200 space-y-2">
+                    <div>
+                      <label className="block text-xs font-extrabold text-blue-950 mb-1">
+                        נושא התיק / מהות העניין
+                      </label>
+                      <input
+                        type="text"
+                        value={subject}
+                        onChange={(e) => setSubject(e.target.value)}
+                        placeholder="נושא מרכזי של התיק..."
+                        className="w-full p-2 text-xs rounded-lg border border-blue-200 bg-white font-extrabold text-slate-900 outline-none focus:border-blue-600"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-extrabold text-blue-950 mb-1">
+                        תקציר מנהלים (3-4 שורות על מהות התיק והמצב הנוכחי)
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={notes}
+                        onChange={(e) => setNotes(e.target.value)}
+                        placeholder="סכם ב-3–4 שורות את מהות התיק, הסטטוס הנוכחי והצעד הבא..."
+                        className="w-full p-2 text-xs rounded-lg border border-blue-200 bg-white font-medium text-slate-900 outline-none focus:border-blue-600 leading-relaxed"
+                      />
+                    </div>
+                  </div>
+
+                  {/* סטטוס נוכחי + מעקב נט המשפט */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] font-extrabold text-slate-700 mb-1">
+                        סטטוס תיק נוכחי
+                      </label>
+                      <select
+                        value={status}
+                        onChange={(e) =>
+                          handleStatusChangeWithTriggers(
+                            e.target.value as CaseStatus
+                          )
+                        }
+                        className="w-full p-2 text-xs rounded-xl border border-slate-300 bg-white font-extrabold text-slate-900 outline-none focus:border-blue-600"
+                      >
+                        {CASE_STATUSES.map((s) => (
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-extrabold text-indigo-900 mb-1">
+                        מעקב נט המשפט והחלטות
+                      </label>
+                      <select
+                        value={netStatus}
+                        onChange={(e) =>
+                          setNetStatus(e.target.value as NetHaMishpatStatus)
+                        }
+                        className="w-full p-2 text-xs rounded-xl border-2 border-indigo-300 bg-indigo-50/50 font-extrabold text-indigo-950 outline-none focus:border-indigo-600"
+                      >
+                        {NET_HAMISHPAT_STATUSES.map((ns) => (
+                          <option key={ns} value={ns}>
+                            {ns}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* הדיון הקרוב והצעד הבא */}
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[11px] font-extrabold text-slate-700 mb-1">
+                          הצעד הבא / סוג מועד
+                        </label>
+                        <select
+                          value={nextActionType}
+                          onChange={(e) =>
+                            setNextActionType(e.target.value as NextActionType)
+                          }
+                          className="w-full p-2 text-xs rounded-lg border border-slate-300 bg-white font-bold"
+                        >
+                          {NEXT_ACTION_TYPES.map((a) => (
+                            <option key={a} value={a}>
+                              {a}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-extrabold text-slate-700 mb-1">
+                          מועד דיון / תאריך יעד
+                        </label>
+                        <input
+                          type="date"
+                          value={nextDueDate}
+                          onChange={(e) => setNextDueDate(e.target.value)}
+                          className="w-full p-2 text-xs rounded-lg border border-slate-300 bg-white font-bold"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-extrabold text-slate-700 mb-1">
+                        פירוט הדיון הקרוב / הפעולה הבאה
+                      </label>
+                      <input
+                        type="text"
+                        value={nextActionDescription}
+                        onChange={(e) =>
+                          setNextActionDescription(e.target.value)
+                        }
+                        placeholder="מה נדרש לבצע לקראת המועד הקרוב..."
+                        className="w-full p-2 text-xs rounded-lg border border-slate-300 bg-white font-bold"
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <label className="inline-flex items-center gap-1.5 text-xs font-extrabold text-rose-800 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={isHearingPostponed}
+                          onChange={(e) =>
+                            setIsHearingPostponed(e.target.checked)
+                          }
+                          className="rounded text-rose-600"
+                        />
+                        <span>דיון נדחה ({extensionsCount} דחיות)</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleIncrementExtensionOrPostpone}
+                        className="px-2 py-1 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-900 text-[11px] font-extrabold transition"
+                      >
+                        + תעד דחייה
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* פרטי זיהוי מהירים (ניתנים להשלמה בכל עת) */}
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 mb-0.5">
+                        מספר תיק (ביהמ&quot;ש / הוצל&quot;פ)
+                      </label>
+                      <input
+                        type="text"
+                        value={caseNumber}
+                        onChange={(e) => setCaseNumber(e.target.value)}
+                        placeholder="ניתן להשלים כאן..."
+                        className="w-full p-1.5 text-xs rounded-lg border border-slate-300 font-mono font-bold"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 mb-0.5">
+                        ת&quot;ז / ח&quot;פ
+                      </label>
+                      <input
+                        type="text"
+                        value={idOrHp}
+                        onChange={(e) => setIdOrHp(e.target.value)}
+                        placeholder="ת״ז / ח״פ..."
+                        className="w-full p-1.5 text-xs rounded-lg border border-slate-300 font-mono font-bold"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('overview')}
+                  className="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-extrabold flex items-center justify-center gap-1.5 transition"
+                >
+                  <Milestone className="w-3.5 h-3.5 text-blue-600" />
+                  <span>לכל שדות התחום המורחבים ({category}) ➔</span>
+                </button>
+              </div>
+
+              {/* ============================================================ */}
+              {/* חלק 2 (אמצע): משימות לביצוע מול מה שבוצע (To-Do vs Done)     */}
+              {/* ============================================================ */}
+              <div className="lg:col-span-4 bg-white rounded-2xl border border-slate-200 shadow-2xs p-4 flex flex-col justify-between space-y-3">
+                <div className="space-y-3 flex-1 flex flex-col min-h-0">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 shrink-0">
+                    <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                      <ListChecks className="w-5 h-5 text-emerald-600" />
+                      <span>2. משימות לביצוע מול בוצע</span>
+                    </h3>
+                    <div className="flex items-center gap-1.5 text-xs font-extrabold">
+                      <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-900">
+                        פתוחות: {openMilestones.length}
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-900">
+                        בוצעו ✓: {completedMilestones.length}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* הוספה מהירה של משימה פתוחה */}
+                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2 shrink-0">
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="text"
+                        value={newMilestoneTitle}
+                        onChange={(e) => setNewMilestoneTitle(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAddMilestone();
+                          }
+                        }}
+                        placeholder="הוסף משימה חדשה לביצוע..."
+                        className="flex-1 p-2 text-xs rounded-lg border border-slate-300 bg-white font-bold outline-none focus:border-blue-600"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddMilestone}
+                        className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-extrabold shrink-0 transition"
+                      >
+                        + הוסף
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <input
+                        type="date"
+                        value={newTaskDueDate}
+                        onChange={(e) => setNewTaskDueDate(e.target.value)}
+                        className="p-1.5 text-[11px] rounded-lg border border-slate-300 bg-white font-bold"
+                        title="תאריך יעד למשימה"
+                      />
+                      <select
+                        value={newMilestoneUrgency}
+                        onChange={(e) =>
+                          setNewMilestoneUrgency(e.target.value as TaskUrgency)
+                        }
+                        className="p-1.5 text-[11px] rounded-lg border border-slate-300 bg-white font-bold"
+                      >
+                        {TASK_URGENCIES.map((u) => (
+                          <option key={u} value={u}>
+                            דחיפות: {u}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* רשימה עליונה: משימות פתוחות לביצוע (עם כפתור ✓ ואייקון עיפרון ✏️ לעריכה) */}
+                  <div className="flex-1 overflow-y-auto space-y-2 pr-0.5">
+                    <div className="text-xs font-extrabold text-slate-700 flex items-center justify-between">
+                      <span>משימות פתוחות לביצוע ({openMilestones.length})</span>
+                    </div>
+
+                    {openMilestones.length === 0 ? (
+                      <div className="p-4 rounded-xl bg-emerald-50/50 border border-emerald-200 text-center text-xs font-bold text-emerald-800">
+                        כל המשימות בתיק הושלמו! ✓
+                      </div>
+                    ) : (
+                      openMilestones.map((m) => {
+                        const isEditing = editingTaskId === m.id;
+                        return (
+                          <div
+                            key={m.id}
+                            className="p-2.5 rounded-xl border border-slate-200 bg-white hover:border-blue-300 transition space-y-2 shadow-2xs"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleMilestoneStatusChange(m.id, 'done')
+                                }
+                                title="סמן כבוצע בקליק אחד ✓"
+                                className="w-5 h-5 mt-0.5 rounded-md border-2 border-emerald-600 text-emerald-700 hover:bg-emerald-600 hover:text-white flex items-center justify-center shrink-0 transition"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                              </button>
+
+                              <div className="flex-1 min-w-0">
+                                {isEditing ? (
+                                  <input
+                                    type="text"
+                                    autoFocus
+                                    value={m.title}
+                                    onChange={(e) =>
+                                      handleMilestoneTitleChange(
+                                        m.id,
+                                        e.target.value
+                                      )
+                                    }
+                                    className="w-full p-1.5 text-xs rounded-lg border border-blue-500 bg-blue-50/20 font-extrabold text-slate-900 outline-none"
+                                  />
+                                ) : (
+                                  <div className="text-xs font-extrabold text-slate-900 leading-snug">
+                                    {m.title}
+                                  </div>
+                                )}
+
+                                <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                                  <span
+                                    className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${getUrgencyBadge(
+                                      m.urgency
+                                    )}`}
+                                  >
+                                    {m.urgency || 'רגילה'}
+                                  </span>
+                                  {m.due_date && (
+                                    <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-[10px] font-bold">
+                                      יעד: {formatDateHe(m.due_date)}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setEditingTaskId(isEditing ? null : m.id)
+                                  }
+                                  title="ערוך משימה (שינוי טקסט, תאריך יעד או דחיפות)"
+                                  className={`p-1.5 rounded-lg border text-xs transition ${
+                                    isEditing
+                                      ? 'bg-blue-600 text-white border-blue-700'
+                                      : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                                  }`}
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteMilestone(m.id)}
+                                  title="מחק משימה"
+                                  className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 transition"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+
+                            {isEditing && (
+                              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 bg-slate-50 p-2 rounded-lg">
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-600 mb-0.5">
+                                    תאריך יעד
+                                  </label>
+                                  <input
+                                    type="date"
+                                    value={m.due_date || ''}
+                                    onChange={(e) =>
+                                      handleMilestoneDueDateChange(
+                                        m.id,
+                                        e.target.value
+                                      )
+                                    }
+                                    className="w-full p-1 text-xs rounded border border-slate-300 bg-white font-bold"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-600 mb-0.5">
+                                    דחיפות
+                                  </label>
+                                  <select
+                                    value={m.urgency || 'רגילה'}
+                                    onChange={(e) =>
+                                      handleMilestoneUrgencyChange(
+                                        m.id,
+                                        e.target.value as TaskUrgency
+                                      )
+                                    }
+                                    className="w-full p-1 text-xs rounded border border-slate-300 bg-white font-bold"
+                                  >
+                                    {TASK_URGENCIES.map((u) => (
+                                      <option key={u} value={u}>
+                                        {u}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+
+                    {/* רשימה תחתונה (מתקפלת/נקייה): משימות שבוצעו ✓ */}
+                    <div className="pt-2 border-t border-slate-200">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setShowCompletedTasksExec((prev) => !prev)
+                        }
+                        className="w-full py-1.5 px-2.5 rounded-lg bg-emerald-50/70 hover:bg-emerald-100/70 border border-emerald-200 text-emerald-950 text-xs font-extrabold flex items-center justify-between transition"
+                      >
+                        <span>
+                          משימות שבוצעו ✓ ({completedMilestones.length})
+                        </span>
+                        {showCompletedTasksExec ? (
+                          <ChevronUp className="w-4 h-4" />
+                        ) : (
+                          <ChevronDown className="w-4 h-4" />
+                        )}
+                      </button>
+
+                      {showCompletedTasksExec &&
+                        completedMilestones.length > 0 && (
+                          <div className="space-y-1.5 mt-2">
+                            {completedMilestones.map((m) => (
+                              <div
+                                key={m.id}
+                                className="p-2 rounded-lg bg-emerald-50/40 border border-emerald-200/80 flex items-center justify-between gap-2 text-xs"
+                              >
+                                <div className="flex items-center gap-2 min-w-0 flex-1">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleMilestoneStatusChange(
+                                        m.id,
+                                        'in_progress'
+                                      )
+                                    }
+                                    title="החזר למשימות פתוחות"
+                                    className="w-4 h-4 rounded bg-emerald-600 text-white flex items-center justify-center shrink-0"
+                                  >
+                                    <Check className="w-3 h-3" />
+                                  </button>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="font-bold text-slate-600 line-through truncate">
+                                      {m.title}
+                                    </div>
+                                    <div className="text-[10px] text-emerald-800 font-bold">
+                                      בוצע ב-{formatDateHe(m.completed_at)}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* ============================================================ */}
+              {/* חלק 3 (שמאל): יומן הערות והתפתחויות כרונולוגי                 */}
+              {/* ============================================================ */}
+              <div className="lg:col-span-4 bg-white rounded-2xl border border-slate-200 shadow-2xs p-4 flex flex-col justify-between space-y-3">
+                <div className="space-y-3 flex-1 flex flex-col min-h-0">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 shrink-0">
+                    <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                      <MessageSquare className="w-5 h-5 text-amber-500" />
+                      <span>3. יומן התפתחויות ({logs.length})</span>
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setLogSortOrder((prev) =>
+                          prev === 'desc' ? 'asc' : 'desc'
+                        )
+                      }
+                      className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-[11px] font-extrabold inline-flex items-center gap-1 transition"
+                      title="הפוך סדר כרונולוגי בקליק"
+                    >
+                      <ArrowUpDown className="w-3.5 h-3.5 text-blue-600" />
+                      <span>
+                        {logSortOrder === 'desc'
+                          ? 'מהחדש לישן ⬇'
+                          : 'מהישן לחדש ⬆'}
+                      </span>
+                    </button>
+                  </div>
+
+                  {/* הוספת הערה / עדכון מהיר ליומן הכרונולוגי */}
+                  <form
+                    onSubmit={handleQuickLogSubmit}
+                    className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2 shrink-0"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <select
+                        value={logType}
+                        onChange={(e) => setLogType(e.target.value as LogType)}
+                        className="p-1.5 text-xs rounded-lg border border-slate-300 bg-white font-bold"
+                      >
+                        {LOG_TYPES.map((t) => (
+                          <option key={t} value={t}>
+                            {t}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="submit"
+                        disabled={submittingLog || !logContent.trim()}
+                        className="px-3 py-1.5 rounded-lg bg-[#0F172A] hover:bg-[#1E3A8A] disabled:opacity-50 text-white text-xs font-extrabold mr-auto transition"
+                      >
+                        + רשום ביומן
+                      </button>
+                    </div>
+                    <textarea
+                      rows={2}
+                      value={logContent}
+                      onChange={(e) => setLogContent(e.target.value)}
+                      placeholder="הקלד הערה, עדכון מייל/נט המשפט, דחיית דיון או החלטה..."
+                      className="w-full p-2 text-xs rounded-lg border border-slate-300 bg-white outline-none focus:border-blue-600"
+                    />
+                  </form>
+
+                  {/* ציר זמן כרונולוגי */}
+                  <div className="flex-1 overflow-y-auto space-y-2 pr-0.5">
+                    {loadingLogs ? (
+                      <p className="text-xs text-slate-500 text-center py-4">
+                        טוען יומן כרונולוגי...
+                      </p>
+                    ) : sortedLogs.length === 0 ? (
+                      <p className="text-xs text-slate-400 text-center py-6">
+                        טרם נרשמו הערות או התפתחויות בתיק.
+                      </p>
+                    ) : (
+                      sortedLogs.map((l) => (
+                        <div
+                          key={l.id}
+                          className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/70 space-y-1"
+                        >
+                          <div className="flex items-center justify-between gap-1 flex-wrap">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${
+                                l.log_type === 'בקשת ארכה / דחיית דיון'
+                                  ? 'bg-rose-100 text-rose-900 border-rose-300'
+                                  : l.log_type === 'החלטת ביהמ"ש'
+                                  ? 'bg-purple-100 text-purple-900 border-purple-300'
+                                  : 'bg-blue-100 text-blue-900 border-blue-300'
+                              }`}
+                            >
+                              {l.log_type}
+                            </span>
+                            <span className="text-[11px] font-bold text-slate-500">
+                              {formatDateTimeHe(l.log_date)}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-900 font-medium leading-relaxed whitespace-pre-wrap">
+                            {l.content}
+                          </p>
+                          <div className="flex items-center justify-between text-[10px] text-slate-500 pt-0.5">
+                            <span>נרשם ע&quot;י: {l.created_by || 'מערכת'}</span>
+                            {l.due_date && (
+                              <span className="font-extrabold text-indigo-700">
+                                יעד: {formatDateHe(l.due_date)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ================================================================ */}
           {/* לשונית 1: מבט על, פס התקדמות ויזואלי והשדות הייעודיים של סוג התיק */}
           {/* ================================================================ */}
