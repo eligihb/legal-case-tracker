@@ -63,6 +63,7 @@ import {
   bulkApplyDistrictToCases,
   clearAllCasesAndStartFresh,
   downloadFullSystemBackupJson,
+  getAssigneesList,
   loadSampleDataSafeMerge,
   restoreFromBackupSafeMerge,
   saveWorkerPermissions,
@@ -70,7 +71,11 @@ import {
   updateCaseItem,
   verifyAdminPassword,
 } from '@/lib/dataService';
-import { quickExportFilteredCasesToXlsx } from './ExcelExportModal';
+import {
+  buildConductReportSummaryAndRows,
+  exportConductAndDelayReportToXlsx,
+  quickExportFilteredCasesToXlsx,
+} from './ExcelExportModal';
 import CopyButton from './CopyButton';
 import { DrawerTab } from './CaseDrawer';
 
@@ -522,6 +527,10 @@ export function ReportsAndChartsModal({
 }: ReportsAndChartsModalProps) {
   const [biSaveFlash, setBiSaveFlash] = useState(false);
   const [biEditMode, setBiEditMode] = useState(true);
+  const [reportViewMode, setReportViewMode] = useState<
+    'bi_charts' | 'conduct_report'
+  >('bi_charts');
+  const [filterAssignee, setFilterAssignee] = useState<string>('הכל');
   // פילטרים אינטראקטיביים של מרכז ה-BI
   const [filterDistrict, setFilterDistrict] = useState<'הכל' | CaseDistrict>(
     'הכל'
@@ -815,6 +824,16 @@ export function ReportsAndChartsModal({
       if (dateTo && (!c.next_due_date || c.next_due_date > dateTo)) {
         return false;
       }
+      if (filterAssignee !== 'הכל') {
+        const matchesMain = c.assigned_to === filterAssignee;
+        const matchesSub = (c.company_submissions || []).some(
+          (s) => s.assignee === filterAssignee
+        );
+        const matchesMs = (c.milestones || []).some(
+          (m) => m.assignee === filterAssignee
+        );
+        if (!matchesMain && !matchesSub && !matchesMs) return false;
+      }
       return true;
     });
   }, [
@@ -827,7 +846,14 @@ export function ReportsAndChartsModal({
     filterHearingBucket,
     dateFrom,
     dateTo,
+    filterAssignee,
   ]);
+
+  const conductSummaryAllFiltered = useMemo(
+    () => buildConductReportSummaryAndRows(biFilteredCases),
+    [biFilteredCases]
+  );
+  const assigneesOptions = useMemo(() => getAssigneesList(), [isOpen]);
 
   if (!isOpen) return null;
 
@@ -838,6 +864,7 @@ export function ReportsAndChartsModal({
     setFilterOverdue('הכל');
     setFilterDelivery('הכל');
     setFilterHearingBucket('הכל');
+    setFilterAssignee('הכל');
     setDateFrom('');
     setDateTo('');
   };
@@ -1021,15 +1048,24 @@ export function ReportsAndChartsModal({
             <button
               type="button"
               onClick={() =>
-                quickExportFilteredCasesToXlsx(
-                  biFilteredCases,
-                  activeFilterSummary || 'דוח_BI_משרדי'
-                )
+                reportViewMode === 'conduct_report'
+                  ? exportConductAndDelayReportToXlsx(
+                      biFilteredCases,
+                      'דוח_בקרת_התנהלות_ואיחורים'
+                    )
+                  : quickExportFilteredCasesToXlsx(
+                      biFilteredCases,
+                      activeFilterSummary || 'דוח_BI_משרדי'
+                    )
               }
               className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-xs transition"
             >
               <FileSpreadsheet className="w-4 h-4" />
-              <span>ייצוא לאקסל ({biFilteredCases.length})</span>
+              <span>
+                {reportViewMode === 'conduct_report'
+                  ? 'ייצוא דוח בקרת איחורים (.xlsx)'
+                  : `ייצוא לאקסל (${biFilteredCases.length})`}
+              </span>
             </button>
 
             <button
@@ -1048,7 +1084,9 @@ export function ReportsAndChartsModal({
               onClick={() =>
                 onPrintBiReport(
                   biFilteredCases,
-                  activeFilterSummary
+                  reportViewMode === 'conduct_report'
+                    ? `CONDUCT_REPORT::דוח בקרת התנהלות ואיחורים — הפקת לקחים (${biFilteredCases.length} תיקים)`
+                    : activeFilterSummary
                     ? `דוח BI מסונן (${activeFilterSummary})`
                     : 'דוח BI מלא — כלל התיקים הפעילים'
                 )
@@ -1056,7 +1094,11 @@ export function ReportsAndChartsModal({
               className="px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-xs transition"
             >
               <Printer className="w-4 h-4" />
-              <span>הדפסה / PDF ({biFilteredCases.length})</span>
+              <span>
+                {reportViewMode === 'conduct_report'
+                  ? 'הדפסת דוח בקרת איחורים (PDF)'
+                  : `הדפסה / PDF (${biFilteredCases.length})`}
+              </span>
             </button>
 
             <button
@@ -1071,6 +1113,58 @@ export function ReportsAndChartsModal({
 
         {/* Scrollable Body */}
         <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 bg-[#F8FAFC]">
+          {/* בורר תצוגת דוח: 1. תרשימי BI אינטראקטיביים | 2. דוח בקרת התנהלות ואיחורים (להפקת לקחים ושיפור) */}
+          <div className="flex flex-wrap items-center justify-between gap-2 bg-white p-2.5 rounded-2xl border border-slate-200 shadow-2xs">
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setReportViewMode('bi_charts')}
+                className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-2 transition ${
+                  reportViewMode === 'bi_charts'
+                    ? 'bg-[#0F172A] text-white shadow-sm'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                <BarChart3 className="w-4 h-4 text-sky-400" />
+                <span>1. תרשימי BI ודוח משרדי כללי</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setReportViewMode('conduct_report')}
+                className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-2 transition ${
+                  reportViewMode === 'conduct_report'
+                    ? 'bg-rose-700 text-white shadow-sm'
+                    : 'bg-rose-50 text-rose-900 hover:bg-rose-100 border border-rose-200'
+                }`}
+              >
+                <AlertTriangle className="w-4 h-4 text-rose-400" />
+                <span>
+                  2. דוח בקרת התנהלות ואיחורים (להפקת לקחים ושיפור —{' '}
+                  {conductSummaryAllFiltered.rows.length} הגשות)
+                </span>
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-extrabold text-indigo-950">
+                סינון לפי אחראי לביצוע:
+              </label>
+              <select
+                value={filterAssignee}
+                onChange={(e) => setFilterAssignee(e.target.value)}
+                className="p-1.5 text-xs rounded-xl border border-indigo-300 bg-indigo-50/50 font-extrabold text-indigo-950"
+              >
+                <option value="הכל">כל אנשי הצוות</option>
+                {assigneesOptions.map((p) => (
+                  <option key={p} value={p}>
+                    👤 {p}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
           {/* סרגל פילטרים חכם + החלה גורפת של מחוז */}
           <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1277,9 +1371,227 @@ export function ReportsAndChartsModal({
             </div>
           </div>
 
-          {/* ================================================================ */}
-          {/* 6 תרשימים ויזואליים עשירים (עם מספרים ואחוזים ולחיצה לסינון!)     */}
-          {/* ================================================================ */}
+          {reportViewMode === 'conduct_report' ? (
+            <div className="space-y-4">
+              {/* 4 כרטיסי סיכום דוח בקרת התנהלות ואיחורים */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 border-t-4 border-t-rose-600 shadow-2xs">
+                  <div className="text-xs font-extrabold text-slate-600">
+                    תגובות והגשות באיחור
+                  </div>
+                  <div className="text-2xl font-extrabold text-rose-700 mt-1">
+                    {conductSummaryAllFiltered.lateSubmissionsCount}{' '}
+                    <span className="text-sm font-bold text-slate-600">
+                      מתוך {conductSummaryAllFiltered.totalSubmissions}
+                    </span>
+                  </div>
+                  <div className="text-xs font-extrabold text-rose-900 mt-1">
+                    סך ימי איחור מצטברים:{' '}
+                    {conductSummaryAllFiltered.totalCumulativeLateDays} ימים
+                  </div>
+                </div>
+
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 border-t-4 border-t-amber-500 shadow-2xs">
+                  <div className="text-xs font-extrabold text-slate-600">
+                    בקשות ארכה וימי ארכה
+                  </div>
+                  <div className="text-2xl font-extrabold text-amber-700 mt-1">
+                    {conductSummaryAllFiltered.totalExtensionRequestsCount}{' '}
+                    <span className="text-sm font-bold text-slate-600">
+                      בקשות ארכה
+                    </span>
+                  </div>
+                  <div className="text-xs font-extrabold text-amber-900 mt-1">
+                    סה&quot;כ ימי ארכה שניתנו:{' '}
+                    {conductSummaryAllFiltered.totalExtensionDaysGranted} ימים
+                  </div>
+                </div>
+
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 border-t-4 border-t-purple-600 shadow-2xs">
+                  <div className="text-xs font-extrabold text-slate-600">
+                    החלטות התראה על אי-הגשה במועד
+                  </div>
+                  <div className="text-2xl font-extrabold text-purple-800 mt-1">
+                    {conductSummaryAllFiltered.totalLateWarningDecisions}
+                  </div>
+                  <div className="text-xs font-bold text-slate-600 mt-1">
+                    החלטות שיפוטיות שניתנו עקב אי-הגשה
+                  </div>
+                </div>
+
+                <div className="bg-white p-4 rounded-2xl border border-slate-200 border-t-4 border-t-emerald-600 shadow-2xs">
+                  <div className="text-xs font-extrabold text-slate-600">
+                    שיעור עמידה במועדים
+                  </div>
+                  <div className="text-2xl font-extrabold text-emerald-700 mt-1">
+                    {conductSummaryAllFiltered.onTimeRatePercent}%
+                  </div>
+                  <div className="text-xs font-bold text-emerald-900 mt-1">
+                    {conductSummaryAllFiltered.onTimeSubmissionsCount} הגשות במועד ✓
+                  </div>
+                </div>
+              </div>
+
+              {/* טבלה משווה להפקת לקחים במסך הדוחות */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+                <div className="px-4 py-3 bg-slate-900 text-white flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm font-extrabold">
+                    דוח בקרת התנהלות ואיחורים — טבלה משווה להפקת לקחים ({conductSummaryAllFiltered.rows.length} הגשות/מועדים)
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onPrintBiReport(
+                          biFilteredCases,
+                          `CONDUCT_REPORT::דוח בקרת התנהלות ואיחורים — הפקת לקחים (${biFilteredCases.length} תיקים)`
+                        )
+                      }
+                      className="px-3 py-1 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-extrabold flex items-center gap-1"
+                    >
+                      <Printer className="w-3.5 h-3.5" />
+                      <span>הדפסה בשחור-לבן</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        exportConductAndDelayReportToXlsx(
+                          biFilteredCases,
+                          'דוח_בקרת_התנהלות_ואיחורים'
+                        )
+                      }
+                      className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1"
+                    >
+                      <FileSpreadsheet className="w-3.5 h-3.5" />
+                      <span>ייצוא לאקסל (.xlsx)</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto max-h-[55vh]">
+                  <table className="w-full text-right border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-slate-100 border-b border-slate-200 font-extrabold text-slate-800">
+                        <th className="py-2.5 px-3">שם התיק / חברה</th>
+                        <th className="py-2.5 px-3">סוג ונושא ההגשה</th>
+                        <th className="py-2.5 px-3">החלטת מקור ותגובה לבקשה</th>
+                        <th className="py-2.5 px-3">תאריך יעד מקורי</th>
+                        <th className="py-2.5 px-3">בקשות ארכה ויעד מעודכן</th>
+                        <th className="py-2.5 px-3">תאריך הגשה בפועל</th>
+                        <th className="py-2.5 px-3">פער ימים (במועד / איחור)</th>
+                        <th className="py-2.5 px-3">החלטות התראה</th>
+                        <th className="py-2.5 px-3">אחראי לביצוע</th>
+                        <th className="py-2.5 px-3">הערכת זמן כתיבה</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200">
+                      {conductSummaryAllFiltered.rows.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={10}
+                            className="py-8 text-center text-slate-500 font-bold"
+                          >
+                            אין הגשות או מועדים התואמים לסינון הנוכחי.
+                          </td>
+                        </tr>
+                      ) : (
+                        conductSummaryAllFiltered.rows.map((r) => {
+                          const targetCase = allCases.find(
+                            (c) => c.id === r.caseId
+                          );
+                          return (
+                            <tr
+                              key={`${r.caseId}_${r.id}`}
+                              onClick={() => {
+                                if (targetCase) {
+                                  onClose();
+                                  onSelectCase(targetCase, 'conduct');
+                                }
+                              }}
+                              className={`cursor-pointer transition ${
+                                r.isLate
+                                  ? 'bg-red-50/50 hover:bg-red-100/60'
+                                  : 'bg-white hover:bg-blue-50/40'
+                              }`}
+                            >
+                              <td className="py-2.5 px-3 font-extrabold text-slate-900">
+                                <div>{r.debtorName}</div>
+                                <div className="text-[11px] text-slate-500 font-mono">
+                                  {r.caseNumber} • {r.category}
+                                </div>
+                              </td>
+                              <td className="py-2.5 px-3 font-extrabold text-slate-900">
+                                <span className="inline-block ml-1.5 px-2 py-0.5 rounded bg-indigo-100 text-indigo-900 text-[11px]">
+                                  {r.documentType}
+                                </span>
+                                {r.subject}
+                              </td>
+                              <td className="py-2.5 px-3 text-slate-700">
+                                <div className="font-bold">
+                                  {r.sourceDecision}
+                                </div>
+                                {r.responseToRequest !== '—' && (
+                                  <div className="text-[11px] text-slate-500">
+                                    תגובה ל: {r.responseToRequest}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 font-mono font-bold">
+                                {formatDateHe(r.originalDueDate)}
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <div className="font-extrabold text-amber-900">
+                                  {r.extensionsCount} בקשות (
+                                  {r.totalExtensionDays} ימים)
+                                </div>
+                                <div className="text-[11px] text-slate-600 font-mono">
+                                  יעד: {formatDateHe(r.currentDueDate)}
+                                </div>
+                                {r.extensionsBreakdown && (
+                                  <div className="text-[10px] text-slate-500">
+                                    {r.extensionsBreakdown}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 font-mono font-bold">
+                                {r.actualSubmittedDate
+                                  ? formatDateHe(r.actualSubmittedDate)
+                                  : 'טרם הוגש'}
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <span
+                                  className={`px-2.5 py-0.5 rounded-full text-[11px] font-extrabold ${
+                                    r.isLate
+                                      ? 'bg-red-600 text-white'
+                                      : 'bg-emerald-100 text-emerald-900'
+                                  }`}
+                                >
+                                  {r.statusLabel}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 text-center font-extrabold text-rose-800">
+                                {r.lateWarningDecisionsCount}
+                              </td>
+                              <td className="py-2.5 px-3 font-extrabold text-indigo-950">
+                                👤 {r.assignee}
+                              </td>
+                              <td className="py-2.5 px-3 font-bold text-slate-700">
+                                {r.estimatedWritingTime}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* ================================================================ */}
+              {/* 6 תרשימים ויזואליים עשירים (עם מספרים ואחוזים ולחיצה לסינון!)     */}
+              {/* ================================================================ */}
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {/* תרשים 1: תיקים באיחור / חריגת מועד מול בזמן */}
             <div className="bg-white p-4 rounded-2xl border border-slate-200 border-t-4 border-t-red-600 shadow-2xs space-y-3">
@@ -1765,6 +2077,8 @@ export function ReportsAndChartsModal({
               </table>
             </div>
           </div>
+            </>
+          )}
         </div>
       </div>
     </div>

@@ -104,8 +104,89 @@ export type InvestigationOutcome =
 
 export type CompanyResolutionDecision =
   | 'טרם הוכרע'
+  | 'המלצה לחיסול'
+  | 'המשך לפירוק / שיקום'
   | 'שיקום כלכלי'
   | 'פירוק חברה';
+
+export type CompanyDocumentsStage =
+  | 'קבלת מסמכים'
+  | 'השלמת מסמכים'
+  | 'עיון וכתיבת טיוטת דוח';
+
+export const COMPANY_DOCUMENTS_STAGES: CompanyDocumentsStage[] = [
+  'קבלת מסמכים',
+  'השלמת מסמכים',
+  'עיון וכתיבת טיוטת דוח',
+];
+
+export type CompanyEntityCheckStatus =
+  | 'טרם נשלח'
+  | 'נשלח — ממתין למענה'
+  | 'התקבל מענה ✓';
+
+export const COMPANY_ENTITY_CHECK_STATUSES: CompanyEntityCheckStatus[] = [
+  'טרם נשלח',
+  'נשלח — ממתין למענה',
+  'התקבל מענה ✓',
+];
+
+export interface CompanyEntityChecks {
+  company_extract_status: CompanyEntityCheckStatus; // נסח חברה (רשם החברות)
+  company_extract_notes?: string;
+  financial_entities_status: CompanyEntityCheckStatus; // גופים פיננסיים (בנקים ואשראי)
+  financial_entities_notes?: string;
+  tax_authority_status: CompanyEntityCheckStatus; // רשות המיסים (מע"מ, מס הכנסה, מיסוי מקרקעין)
+  tax_authority_notes?: string;
+  insurance_pension_status: CompanyEntityCheckStatus; // ביטוח ופנסיה (הר הביטוח / קופות)
+  insurance_pension_notes?: string;
+}
+
+export type TaskExecutionState =
+  | 'בטיפול'
+  | 'בוצע'
+  | 'הועבר לאחר'
+  | 'תלוי באחר';
+
+export const TASK_EXECUTION_STATES: TaskExecutionState[] = [
+  'בטיפול',
+  'בוצע',
+  'הועבר לאחר',
+  'תלוי באחר',
+];
+
+export const DEFAULT_ACTION_TAGS: string[] = [
+  'התקשרות',
+  'מייל',
+  'בירור',
+  'נסח טאבו',
+  'מכתב',
+  'הגשה',
+  'פגישה/חקירה',
+];
+
+export const DEFAULT_CONTACT_CATEGORIES: string[] = [
+  'חייבים וצדדים בתיקים',
+  'צוות המשרד (תפקידים ושיוך)',
+  'עיריות ורשויות מקומיות',
+  'משרדי עו"ד חיצוניים ובעלי תפקידים',
+  'הממונה על חדל"פ, בתי משפט וגופים נוספים',
+];
+
+export interface OfficeContactItem {
+  id: string;
+  category: string;
+  name: string; // שם עובד / מנהל / חייב / עו"ד / איש קשר
+  organization?: string; // שם רשות / משרד עו"ד / גוף / חברה
+  role_or_title?: string; // תפקיד מדויק (למשל: מנהל מחלקת גבייה / נאמן / מתמחה)
+  phone?: string;
+  email?: string;
+  related_case_id?: string;
+  related_case_name?: string;
+  notes?: string;
+  is_auto_synced?: boolean;
+  updated_at: string;
+}
 
 export type CondominiumFitStatus =
   | 'תקין ומתאים לרישום'
@@ -157,6 +238,78 @@ export interface CaseMilestone {
   completed_at?: string | null; // YYYY-MM-DD
   days_spent?: number; // מדידה אוטומטית של כמה ימים לקח עד לסגירה
   due_date?: string | null; // YYYY-MM-DD
+  assignee?: string; // אחראי לביצוע (למשל: אליאב, רון, מזכירות, מתמחה)
+  is_manager_instruction?: boolean; // הוראת מנהל / רון עם סימון בולט
+  execution_state?: TaskExecutionState; // 'בטיפול' | 'בוצע' | 'הועבר לאחר' | 'תלוי באחר'
+  action_tag?: string; // תגית פעולה גמישה ('התקשרות' | 'מייל' | 'בירור' | 'נסח טאבו' | 'מכתב' וכו')
+  follow_up_title?: string; // משימת המשך משורשרת שנפתחת אוטומטית עם השלמת המשימה הנוכחית
+  contact_ref?: string; // איש קשר משויך מהאלפון המשרדי
+  updated_by?: string;
+}
+
+export type HearingLiveStatus = 'מתקיים' | 'נדחה' | 'בוטל';
+
+export const HEARING_LIVE_STATUSES: HearingLiveStatus[] = [
+  'מתקיים',
+  'נדחה',
+  'בוטל',
+];
+
+export interface HearingPostponementRecord {
+  id: string;
+  previous_date: string; // YYYY-MM-DD
+  new_date: string; // YYYY-MM-DD
+  reason: string;
+  recorded_at: string; // ISO string
+  recorded_by?: string;
+}
+
+export interface CompanyHearingItem {
+  id: string;
+  title: string; // נושא הדיון
+  hearing_date: string; // YYYY-MM-DD
+  status: HearingLiveStatus; // 'מתקיים' | 'נדחה' | 'בוטל'
+  judge_or_court?: string; // מותב / שופט / בית משפט
+  assignee?: string; // אחראי לביצוע / מייצג בדיון
+  notes?: string;
+  postponements_count: number;
+  postponement_history: HearingPostponementRecord[];
+}
+
+export type CompanyDocumentType = 'דוח נאמן' | 'בקשה' | 'תגובה';
+
+export const COMPANY_DOCUMENT_TYPES: CompanyDocumentType[] = [
+  'דוח נאמן',
+  'בקשה',
+  'תגובה',
+];
+
+export interface SubmissionExtensionRecord {
+  id: string;
+  requested_at: string; // YYYY-MM-DD
+  days_requested: number; // לכמה ימים התבקשה הארכה
+  days_approved: number; // כמה ימי ארכה ניתנו בפועל
+  reason?: string;
+}
+
+export interface CompanySubmissionItem {
+  id: string;
+  document_type: CompanyDocumentType; // 'דוח נאמן' | 'בקשה' | 'תגובה'
+  title: string; // נושא ההגשה / הכותרת
+  related_decision_ref: string; // ביחס לאיזו החלטה (למשל: החלטת כב' השופט X)
+  related_decision_date?: string | null; // ממתי ההחלטה (YYYY-MM-DD)
+  response_to_request?: string; // תגובה לאיזו בקשה (למשל: בקשה מס' 12 של הנושה)
+  short_description?: string; // תיאור קצר של ההגשה/התגובה
+  original_due_date: string; // תאריך יעד מקורי (YYYY-MM-DD)
+  due_date: string; // תאריך יעד נוכחי לאחר ארכות (YYYY-MM-DD)
+  submitted_at?: string | null; // תאריך הגשה בפועל (YYYY-MM-DD)
+  is_submitted: boolean; // האם הוגש בפועל
+  extensions_count: number; // כמה בקשות ארכה התבקשו
+  total_extension_days: number; // סך הכול כמה ימי ארכה ניתנו
+  extension_requests: SubmissionExtensionRecord[]; // פירוט בקשות הארכה
+  late_warning_decisions_count: number; // מונה החלטות התראה על אי-הגשה במועד
+  estimated_writing_time: string; // הערכת זמן נדרש לכתיבה (בשעות/ימים)
+  assignee: string; // אחראי לביצוע (אליאב, רון, מזכירות, מתמחה וכו')
   updated_by?: string;
 }
 
@@ -222,7 +375,10 @@ export interface CaseItem {
   next_action_type: NextActionType;
   next_action_description: string;
   next_due_date?: string | null; // YYYY-MM-DD
+  assigned_to?: string; // אחראי לביצוע בתיק / לפעולה הבאה
   extensions_count?: number; // מונה ארכות / דחיות
+  total_extension_days?: number; // סה"כ ימי ארכה שניתנו בתיק
+  late_warning_decisions_count?: number; // מונה החלטות התראה על אי-הגשה במועד
   is_hearing_postponed?: boolean; // האם הדיון נדחה (מסומן ב-'נדחה')
   postponed_reason?: string; // סיבת דחיית דיון / ארכה אחרונה
   trustee_report_due_date?: string | null; // YYYY-MM-DD מועד עדכון דו"ח נאמן
@@ -264,10 +420,14 @@ export interface CaseItem {
   new_debts_tracking?: string; // מעקב חובות חדשים (בדיקה מול נאמן / בקשה לביטול הליכים)
 
   // =========================================================================
-  // 3. שדות ייעודיים לתיקי חברות (נאמן / מפרק):
+  // 3. שדות ייעודיים לתיקי חברות (נאמן / מפרק / כינוס / שיקום):
   // =========================================================================
-  self_undertaking_deposited?: boolean; // הפקדת התחייבות עצמית (100,000 ₪) (הופקדה/טרם)
+  appointment_date?: string | null; // YYYY-MM-DD מועד קבלת המינוי מהמזכירות
+  guarantee_bond_due_date?: string | null; // YYYY-MM-DD יעד הגשת כתב ערובה (14 יום אוטומטית ממועד המינוי)
+  self_undertaking_deposited?: boolean; // הפקדת התחייבות עצמית / כתב ערובה (100,000 ₪) (הופקדה/טרם)
   self_undertaking_date?: string | null; // YYYY-MM-DD
+  company_entity_checks?: CompanyEntityChecks; // בדיקות מול גופים: נסח חברה, גופים פיננסיים, רשות המיסים, ביטוח ופנסיה
+  company_documents_stage?: CompanyDocumentsStage; // סטטוס מסמכים: קבלת מסמכים / השלמת מסמכים / עיון וכתיבת טיוטת דוח
   insurance_and_assets_letters_status?: string; // מכתבים לחברות ביטוח ואיתור נכסים
   representative_contact_details?: string; // פנייה למייצג החברה
   investigating_trustee_name?: string; // שם הנאמן החוקר
@@ -276,7 +436,9 @@ export interface CaseItem {
   investigation_outcome?: InvestigationOutcome; // תוצאות חקירה (אם לא הגיע -> בקשת צו הבאה; חסרים מסמכים -> השלמות)
   missing_documents_details?: string; // פירוט השלמות מסמכים חסרים
   trustee_findings_summary?: string; // תקציר דו"ח נאמן ועדכון ממצאים
-  company_resolution_decision?: CompanyResolutionDecision; // הכרעה: שיקום או פירוק
+  company_resolution_decision?: CompanyResolutionDecision; // צומת הכרעה: המלצה לחיסול מול המשך לפירוק / שיקום
+  company_hearings?: CompanyHearingItem[]; // ענף דיונים בתיק חברות (מתקיים / נדחה / בוטל + היסטוריית דחיות)
+  company_submissions?: CompanySubmissionItem[]; // ענף הגשות, תגובות ודוחות נאמן (ייחוס להחלטה, ארכות, איחורים והערכת זמן כתיבה)
 
   // =========================================================================
   // 4. שדות ייעודיים לפרויקטים של "חברה משכנת" (רישום וזכויות):
@@ -336,6 +498,11 @@ export interface CaseLog {
   log_type: LogType;
   content: string;
   due_date?: string | null; // YYYY-MM-DD
+  is_manager_instruction?: boolean; // הוראת מנהל / רון עם סימון בולט
+  execution_state?: TaskExecutionState; // 'בטיפול' | 'בוצע' | 'הועבר לאחר' | 'תלוי באחר'
+  action_tag?: string; // תגית פעולה ('התקשרות', 'מייל', 'בירור', 'נסח טאבו', 'מכתב' וכו')
+  contact_ref?: string; // איש קשר מהאלפון המשרדי
+  assignee?: string; // אחראי לביצוע
   created_by?: string;
 }
 
@@ -372,9 +539,9 @@ export const CATEGORY_LABELS: Record<
   },
   'חברות': {
     number: 3,
-    title: 'תיקי חברות (נאמן / מפרק)',
-    shortTitle: 'תיקי חברות (נאמן / מפרק)',
-    subtitle: 'התחייבות עצמית 100,000 ₪, איתור נכסים, חקירות וצו הבאה, דו"ח נאמן ושיקום/פירוק',
+    title: 'תיקי חברות (פירוק, כינוס, שיקום)',
+    shortTitle: 'תיקי חברות (פירוק / כינוס / שיקום)',
+    subtitle: 'ענף דיונים והגשות קרובות, מונה ארכות וימי ארכה, ייחוס להחלטות, בקרת איחורים, התחייבות עצמית וחקירות',
     themeColor: 'emerald',
   },
   'חברה משכנת': {
@@ -493,6 +660,8 @@ export const INVESTIGATION_OUTCOMES: InvestigationOutcome[] = [
 
 export const COMPANY_RESOLUTION_DECISIONS: CompanyResolutionDecision[] = [
   'טרם הוכרע',
+  'המלצה לחיסול',
+  'המשך לפירוק / שיקום',
   'שיקום כלכלי',
   'פירוק חברה',
 ];

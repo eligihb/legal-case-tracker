@@ -42,6 +42,7 @@ import {
   Moon,
   ChevronDown,
   Pencil,
+  BookUser,
 } from 'lucide-react';
 import {
   CASE_CATEGORIES,
@@ -89,9 +90,11 @@ import SmartPasteModal from '@/components/SmartPasteModal';
 import CsvImportModal from '@/components/CsvImportModal';
 import MunicipalitiesSettingsModal from '@/components/MunicipalitiesSettingsModal';
 import ExcelExportModal, {
+  buildConductReportSummaryAndRows,
   quickExportFilteredCasesToXlsx,
 } from '@/components/ExcelExportModal';
 import UsersManagementModal from '@/components/UsersManagementModal';
+import OfficeDirectoryModal from '@/components/OfficeDirectoryModal';
 import CopyButton from '@/components/CopyButton';
 import {
   AddCustomFieldModal,
@@ -153,6 +156,11 @@ export default function DashboardPage() {
   const [isExcelModalOpen, setIsExcelModalOpen] = useState(false);
   const [isReportsModalOpen, setIsReportsModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [isDirectoryModalOpen, setIsDirectoryModalOpen] = useState(false);
+  const [homeHotFilter, setHomeHotFilter] = useState<
+    'all' | 'hearings' | 'submissions' | 'urgent' | 'net'
+  >('all');
+  const heroSearchInputRef = useRef<HTMLInputElement | null>(null);
   const [isCustomFieldModalOpen, setIsCustomFieldModalOpen] = useState(false);
   const [customFieldTargetCase, setCustomFieldTargetCase] =
     useState<CaseItem | null>(null);
@@ -1223,555 +1231,663 @@ export default function DashboardPage() {
         </header>
 
         {/* ================================================================== */}
-        {/* גוף האפליקציה (Zero-Scroll במסך הבית — חיפוש מרכזי + דופק יומי + קטגוריות וגרפים) */}
+        {/* מרחב עבודה מודרני בסגנון CRM: סרגל ניווט צדדי מימין (Desktop) + תוכן מרכזי */}
         {/* ================================================================== */}
-        <div
-          ref={scrollContainerRef}
-          className="flex-1 overflow-y-auto px-3 sm:px-6 py-3 pb-20 md:pb-4 max-w-[1600px] w-full mx-auto flex flex-col justify-between transition-all duration-200"
-        >
-          {screenMode === 'home' ? (
-            <div className="flex-1 flex flex-col justify-between gap-3 min-h-0">
-              {/* ============================================================ */}
-              {/* רצועה 1 במסך הבית — שורת חיפוש ראשית ממורכזת ובולטת (Hero Search Bar) */}
-              {/* עם אייקון זכוכית מגדלת בלבד (ללא טקסטים מסבירים מעליה) + 3 כפתורי פעולה */}
-              {/* ============================================================ */}
-              <section className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-xs">
-                <div className="max-w-5xl mx-auto flex flex-wrap items-center justify-center gap-2.5">
-                  {/* שורת חיפוש ראשית ממורכזת עם אייקון זכוכית מגדלת בלבד */}
-                  <div className="relative flex-1 min-w-[260px]">
-                    <Search className="w-5 h-5 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                    <input
-                      type="text"
-                      aria-label="חיפוש תיק לפי שם לקוח, ת״ז, מספר תיק או נושא"
-                      value={homeSearchQuery}
-                      onChange={(e) => setHomeSearchQuery(e.target.value)}
-                      placeholder="חיפוש לפי שם לקוח / חייב, ת״ז, מספר תיק או שלב..."
-                      className="w-full pr-11 pl-9 py-2.5 text-sm sm:text-base rounded-xl bg-slate-50 focus:bg-white text-slate-900 placeholder-slate-400 font-bold border-2 border-slate-200 focus:border-blue-600 outline-none transition"
-                    />
-                    {homeSearchQuery && (
-                      <button
-                        type="button"
-                        onClick={() => setHomeSearchQuery('')}
-                        className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-extrabold text-slate-400 hover:text-slate-700"
-                      >
-                        ✕
-                      </button>
-                    )}
+        <div className="flex-1 flex min-h-0 overflow-hidden">
+          {/* סרגל ניווט צדדי מימין (Right Sidebar — Desktop >= md) */}
+          <aside className="hidden md:flex w-60 shrink-0 flex-col bg-[#0F172A] text-white border-l border-slate-800 p-3 justify-between overflow-y-auto no-print">
+            <div className="space-y-4">
+              {/* ניווט ראשי */}
+              <div className="space-y-1">
+                <div className="px-2.5 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
+                  ניווט ראשי
+                </div>
+                <button
+                  type="button"
+                  onClick={handleGoHome}
+                  className={`w-full px-3 py-2.5 rounded-xl text-xs font-extrabold flex items-center justify-between transition ${
+                    screenMode === 'home'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-200 hover:bg-slate-800'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <Home className="w-4 h-4 shrink-0" />
+                    <span>מסך הבית</span>
+                  </span>
+                </button>
 
-                    {/* רשימת תוצאות קופצת */}
-                    {homeSearchQuery.trim() !== '' && (
-                      <div className="absolute right-0 left-0 top-full mt-1.5 bg-white text-slate-900 rounded-2xl shadow-2xl border border-slate-200 z-50 max-h-80 overflow-y-auto divide-y divide-slate-100">
-                        {homeSearchResults.length === 0 ? (
-                          <div className="p-4 text-center text-xs font-bold text-slate-500">
-                            לא נמצאו תיקים התואמים ל-&quot;{homeSearchQuery}&quot;
-                          </div>
-                        ) : (
-                          homeSearchResults.map((c) => (
-                            <button
-                              key={c.id}
-                              type="button"
-                              onClick={() => {
-                                setHomeSearchQuery('');
-                                openCaseDrawer(c);
-                              }}
-                              className="w-full p-3 hover:bg-blue-50 text-right flex items-center justify-between gap-2 transition"
-                            >
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="px-2 py-0.5 rounded text-[11px] font-extrabold bg-blue-100 text-blue-900">
-                                    {c.category}
-                                  </span>
-                                  <span className="font-extrabold text-slate-900 text-sm">
-                                    {c.debtor_name}
-                                  </span>
-                                  {c.current_stage && (
-                                    <span className="text-xs text-slate-600 font-bold">
-                                      • {c.current_stage}
-                                    </span>
-                                  )}
-                                  {c.case_number ? (
-                                    <span className="text-xs font-mono font-bold text-slate-700">
-                                      ({c.case_number})
-                                    </span>
-                                  ) : (
-                                    <span className="text-[11px] text-amber-700 font-bold">
-                                      (ללא מס׳ תיק)
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                              <span className="px-2.5 py-1 rounded-lg bg-[#0F172A] text-white text-xs font-extrabold shrink-0">
-                                פתח תיק ➔
-                              </span>
-                            </button>
-                          ))
-                        )}
-                      </div>
-                    )}
-                  </div>
+                <button
+                  type="button"
+                  onClick={() => navigateToCasesScreen('all')}
+                  className={`w-full px-3 py-2.5 rounded-xl text-xs font-extrabold flex items-center justify-between transition ${
+                    screenMode === 'cases' && casesViewCategory === 'all'
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-200 hover:bg-slate-800'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <FolderKanban className="w-4 h-4 text-sky-400 shrink-0" />
+                    <span>כל התיקים</span>
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full bg-white/10 text-[11px] font-mono">
+                    {homeMetrics.totalActiveCases}
+                  </span>
+                </button>
+              </div>
 
-                  {/* כפתורי הפעולה הראשיים למסך הבית בלבד */}
-                  <div className="flex items-center gap-2 flex-wrap">
+              {/* 4 הקטגוריות */}
+              <div className="space-y-1">
+                <div className="px-2.5 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
+                  4 הקטגוריות
+                </div>
+                {homeMetrics.byCategory.map((item) => {
+                  const cat = item.category;
+                  const active =
+                    screenMode === 'cases' && casesViewCategory === cat;
+                  const dotColor =
+                    cat === 'גבייה'
+                      ? 'bg-blue-400'
+                      : cat === 'חדל"פ'
+                      ? 'bg-purple-400'
+                      : cat === 'חברות'
+                      ? 'bg-emerald-400'
+                      : 'bg-amber-400';
+                  return (
                     <button
+                      key={cat}
                       type="button"
-                      onClick={() => setIsNewModalOpen(true)}
-                      className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs sm:text-sm flex items-center gap-1.5 shadow-xs transition"
+                      onClick={() => navigateToCasesScreen(cat)}
+                      className={`w-full px-3 py-2 rounded-xl text-xs font-extrabold flex items-center justify-between transition ${
+                        active
+                          ? 'bg-slate-800 text-white border border-slate-700'
+                          : 'text-slate-300 hover:bg-slate-800/70 hover:text-white'
+                      }`}
                     >
-                      <Plus className="w-4 h-4 shrink-0" />
-                      <span>+ פתיחת תיק חדש</span>
+                      <span className="flex items-center gap-2 truncate">
+                        <span
+                          className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`}
+                        />
+                        <span className="truncate">
+                          {CATEGORY_LABELS[cat].shortTitle}
+                        </span>
+                      </span>
+                      <span className="text-[11px] font-mono text-slate-400">
+                        {item.count}
+                      </span>
                     </button>
+                  );
+                })}
+              </div>
 
-                    <div className="relative inline-flex items-center">
-                      <button
-                        type="button"
-                        onClick={() => setIsSmartPasteOpen(true)}
-                        className="px-4 py-2.5 rounded-r-xl bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs sm:text-sm flex items-center gap-1.5 shadow-xs transition"
-                      >
-                        <ClipboardPaste className="w-4 h-4 shrink-0" />
-                        <span>קליטה חכמה (מייל / נט המשפט)</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setShowSmartPasteHint((v) => !v)}
-                        title="הסבר והנחיות לקליטה חכמה"
-                        className="px-2.5 py-2.5 rounded-l-xl bg-blue-700 hover:bg-blue-600 text-sky-200 border-r border-blue-500 font-extrabold text-xs sm:text-sm flex items-center justify-center transition"
-                      >
-                        <HelpCircle className="w-4 h-4" />
-                      </button>
+              {/* כלים משרדיים: אלפון, דוחות ובקרת איחורים, גיבוי והגדרות */}
+              <div className="space-y-1 pt-2 border-t border-slate-800">
+                <div className="px-2.5 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
+                  כלים משרדיים ובקרה
+                </div>
 
-                      {showSmartPasteHint && (
-                        <div className="absolute left-0 top-full mt-2 w-80 p-3 rounded-xl bg-slate-900 text-white text-xs shadow-2xl border border-slate-700 z-50 space-y-1">
-                          <div className="font-extrabold text-sky-300 flex items-center justify-between">
-                            <span>קליטה חכמה ממייל / נט המשפט</span>
-                            <button
-                              type="button"
-                              onClick={() => setShowSmartPasteHint(false)}
-                              className="text-slate-400 hover:text-white"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                          <p className="text-slate-200 leading-relaxed">
-                            הדבק משפט חופשי או הודעת נט המשפט — המערכת מזהה אוטומטית שם לקוח, מספר תיק, סוג פעולה ותאריכים יחסיים (`לעוד 14 ימים`, `מחר`, `בעוד שבוע`).
-                          </p>
+                <button
+                  type="button"
+                  onClick={() => setIsDirectoryModalOpen(true)}
+                  className="w-full px-3 py-2.5 rounded-xl text-xs font-extrabold text-indigo-200 hover:bg-indigo-600/30 hover:text-white flex items-center gap-2 transition"
+                >
+                  <BookUser className="w-4 h-4 text-indigo-400 shrink-0" />
+                  <span>אלפון משרדי חכם</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsReportsModalOpen(true)}
+                  className="w-full px-3 py-2.5 rounded-xl text-xs font-extrabold text-slate-200 hover:bg-slate-800 flex items-center gap-2 transition"
+                >
+                  <BarChart3 className="w-4 h-4 text-sky-400 shrink-0" />
+                  <span>דוחות ובקרת איחורים</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsSettingsModalOpen(true)}
+                  className="w-full px-3 py-2.5 rounded-xl text-xs font-extrabold text-slate-200 hover:bg-slate-800 flex items-center gap-2 transition"
+                >
+                  <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>גיבוי והגדרות</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-slate-800 text-[11px] text-slate-400 space-y-1">
+              <div className="font-extrabold text-slate-300">
+                גרסה {APP_VERSION} • CRM משפטי
+              </div>
+              <div>{APP_UPDATED_AT}</div>
+            </div>
+          </aside>
+
+          {/* אזור התוכן המרכזי (ללא גלילה אופקית — רספונסיבי מלא למובייל) */}
+          <div
+            ref={scrollContainerRef}
+            className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden px-3 sm:px-6 py-3 pb-24 md:pb-5 max-w-[1500px] w-full mx-auto flex flex-col gap-3 transition-all duration-200"
+          >
+            {screenMode === 'home' ? (
+              <div className="flex-1 flex flex-col gap-3.5 min-h-0">
+                {/* ============================================================ */}
+                {/* שורת חיפוש ראשית נקייה (Hero Search) + כפתורי פתיחת תיק וקליטה חכמה */}
+                {/* ============================================================ */}
+                <section className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-xs">
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <div className="relative flex-1 min-w-[220px]">
+                      <Search className="w-5 h-5 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <input
+                        ref={heroSearchInputRef}
+                        type="text"
+                        aria-label="חיפוש תיק לפי שם לקוח, ת״ז, מספר תיק או נושא"
+                        value={homeSearchQuery}
+                        onChange={(e) => setHomeSearchQuery(e.target.value)}
+                        placeholder="חיפוש מהיר לפי שם לקוח / חייב, ת״ז, מספר תיק או שלב..."
+                        className="w-full pr-11 pl-9 py-2.5 text-sm rounded-xl bg-slate-50 focus:bg-white text-slate-900 placeholder-slate-400 font-bold border-2 border-slate-200 focus:border-blue-600 outline-none transition"
+                      />
+                      {homeSearchQuery && (
+                        <button
+                          type="button"
+                          onClick={() => setHomeSearchQuery('')}
+                          className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-extrabold text-slate-400 hover:text-slate-700"
+                        >
+                          ✕
+                        </button>
+                      )}
+
+                      {homeSearchQuery.trim() !== '' && (
+                        <div className="absolute right-0 left-0 top-full mt-1.5 bg-white text-slate-900 rounded-2xl shadow-2xl border border-slate-200 z-50 max-h-80 overflow-y-auto divide-y divide-slate-100">
+                          {homeSearchResults.length === 0 ? (
+                            <div className="p-4 text-center text-xs font-bold text-slate-500">
+                              לא נמצאו תיקים התואמים ל-&quot;{homeSearchQuery}&quot;
+                            </div>
+                          ) : (
+                            homeSearchResults.map((c) => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                onClick={() => {
+                                  setHomeSearchQuery('');
+                                  openCaseDrawer(c);
+                                }}
+                                className="w-full p-3 hover:bg-blue-50 text-right flex items-center justify-between gap-2 transition"
+                              >
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="px-2 py-0.5 rounded text-[11px] font-extrabold bg-blue-100 text-blue-900">
+                                      {c.category}
+                                    </span>
+                                    <span className="font-extrabold text-slate-900 text-sm">
+                                      {c.debtor_name}
+                                    </span>
+                                    {c.case_number ? (
+                                      <span className="text-xs font-mono font-bold text-slate-600">
+                                        ({c.case_number})
+                                      </span>
+                                    ) : (
+                                      <span className="text-[11px] text-amber-700 font-bold">
+                                        (ללא מס׳ תיק)
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                <span className="px-2.5 py-1 rounded-lg bg-[#0F172A] text-white text-xs font-extrabold shrink-0">
+                                  פתח ➔
+                                </span>
+                              </button>
+                            ))
+                          )}
                         </div>
                       )}
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => setIsReportsModalOpen(true)}
-                      className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs sm:text-sm flex items-center gap-1.5 shadow-xs transition"
-                    >
-                      <BarChart3 className="w-4 h-4 text-sky-200 shrink-0" />
-                      <span>דוחות וגרפים</span>
-                    </button>
-                  </div>
-                </div>
-              </section>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => setIsNewModalOpen(true)}
+                        className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs sm:text-sm flex items-center gap-1.5 shadow-xs transition"
+                      >
+                        <Plus className="w-4 h-4 shrink-0" />
+                        <span>+ פתיחת תיק חדש</span>
+                      </button>
 
-              {/* ============================================================ */}
-              {/* רצועה 2 — הדופק היומי (מיד מתחת לחיפוש — 6 כרטיסי פעולה לחיצים) */}
-              {/* 1. דיונים קרובים | 2. דיונים שנדחו / בוטלו | 3. הגשות ותגובות לביהמ"ש */}
-              {/* 4. משימות דחופות ואיחורים | 5. מעקב נט המשפט | 6. תיקים רדומים (30+ יום) */}
-              {/* ============================================================ */}
-              <section className="space-y-1.5">
-                <div className="flex items-center justify-between px-1">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                    <h2 className="text-sm font-extrabold text-slate-900">
-                      הדופק היומי
-                    </h2>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => navigateToCasesScreen('all')}
-                    className="text-xs text-blue-700 hover:underline font-extrabold"
-                  >
-                    לכל התיקים ({homeMetrics.totalActiveCases}) ➔
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
-                  {/* 1. דיונים קרובים */}
-                  <button
-                    type="button"
-                    onClick={() => handleKpiCardClick('upcoming_hearings')}
-                    className="p-3 rounded-2xl bg-white border border-slate-200 border-t-4 border-t-amber-500 hover:shadow-md text-right transition flex flex-col justify-between space-y-2 group"
-                  >
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="text-xs font-extrabold text-slate-900 group-hover:text-amber-700">
-                        דיונים קרובים
-                      </span>
-                      <CalendarClock className="w-4 h-4 text-amber-600 shrink-0" />
-                    </div>
-                    <div>
-                      <div className="flex items-baseline justify-between">
-                        <span className="text-2xl font-extrabold text-amber-600">
-                          {homeMetrics.upcomingHearings.length}
-                        </span>
-                        <span className="text-[10px] font-extrabold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-full">
-                          14 יום
-                        </span>
-                      </div>
-                      <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1.5">
-                        <div
-                          className="h-full bg-amber-500 rounded-full"
-                          style={{
-                            width: `${Math.max(homeMetrics.upcomingPct, 8)}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-                  </button>
-
-                  {/* 2. דיונים שנדחו / בוטלו */}
-                  <button
-                    type="button"
-                    onClick={() => handleKpiCardClick('postponed_hearings')}
-                    className="p-3 rounded-2xl bg-white border border-slate-200 border-t-4 border-t-rose-500 hover:shadow-md text-right transition flex flex-col justify-between space-y-2 group"
-                  >
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="text-xs font-extrabold text-slate-900 group-hover:text-rose-700">
-                        דיונים שנדחו / בוטלו
-                      </span>
-                      <span className="px-1.5 py-0.5 text-[10px] font-extrabold rounded bg-rose-100 text-rose-800">
-                        נדחה
-                      </span>
-                    </div>
-                    <div>
-                      <div className="flex items-baseline justify-between">
-                        <span className="text-2xl font-extrabold text-rose-600">
-                          {homeMetrics.postponedHearings.length}
-                        </span>
-                        <span className="text-[10px] font-extrabold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded-full">
-                          {homeMetrics.totalExtensionsSum} דחיות
-                        </span>
-                      </div>
-                      <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1.5">
-                        <div
-                          className="h-full bg-rose-500 rounded-full"
-                          style={{
-                            width: `${Math.max(homeMetrics.postponedPct, 8)}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-                  </button>
-
-                  {/* 3. הגשות ותגובות לביהמ"ש / נט המשפט (כולל ימי היערכות מראש) */}
-                  <button
-                    type="button"
-                    onClick={() => handleKpiCardClick('court_submissions')}
-                    className="p-3 rounded-2xl bg-white border border-slate-200 border-t-4 border-t-purple-600 hover:shadow-md text-right transition flex flex-col justify-between space-y-2 group"
-                  >
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="text-xs font-extrabold text-slate-900 group-hover:text-purple-700">
-                        הגשות ותגובות לביהמ&quot;ש
-                      </span>
-                      <FileText className="w-4 h-4 text-purple-600 shrink-0" />
-                    </div>
-                    <div>
-                      <div className="flex items-baseline justify-between">
-                        <span className="text-2xl font-extrabold text-purple-700">
-                          {homeMetrics.courtSubmissions.length}
-                        </span>
-                        <span className="text-[10px] font-extrabold text-purple-900 bg-purple-100 px-1.5 py-0.5 rounded-full">
-                          היערכות: {homeMetrics.avgPrepDays} ימים
-                        </span>
-                      </div>
-                      <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1.5">
-                        <div
-                          className="h-full bg-purple-600 rounded-full"
-                          style={{
-                            width: `${Math.max(
-                              homeMetrics.courtSubmissionsPct,
-                              8
-                            )}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-                  </button>
-
-                  {/* 4. משימות דחופות ואיחורים */}
-                  <button
-                    type="button"
-                    onClick={() => handleKpiCardClick('urgent_tasks')}
-                    className="p-3 rounded-2xl bg-white border border-slate-200 border-t-4 border-t-red-600 hover:shadow-md text-right transition flex flex-col justify-between space-y-2 group"
-                  >
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="text-xs font-extrabold text-slate-900 group-hover:text-red-600">
-                        משימות דחופות ואיחורים
-                      </span>
-                      <Flame className="w-4 h-4 text-red-600 shrink-0" />
-                    </div>
-                    <div>
-                      <div className="flex items-baseline justify-between">
-                        <span className="text-2xl font-extrabold text-red-600">
-                          {homeMetrics.urgentTasks.length}
-                        </span>
-                        <span className="text-[10px] font-extrabold text-red-800 bg-red-50 px-1.5 py-0.5 rounded-full">
-                          {homeMetrics.delayedCases.length} באיחור
-                        </span>
-                      </div>
-                      <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1.5">
-                        <div
-                          className="h-full bg-red-600 rounded-full"
-                          style={{
-                            width: `${Math.max(homeMetrics.urgentPct, 8)}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-                  </button>
-
-                  {/* 5. מעקב נט המשפט והחלטות ממתינות */}
-                  <button
-                    type="button"
-                    onClick={() => handleKpiCardClick('net_hamishpat')}
-                    className="p-3 rounded-2xl bg-white border border-slate-200 border-t-4 border-t-indigo-600 hover:shadow-md text-right transition flex flex-col justify-between space-y-2 group"
-                  >
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="text-xs font-extrabold text-slate-900 group-hover:text-indigo-700">
-                        מעקב נט המשפט והחלטות
-                      </span>
-                      <Gavel className="w-4 h-4 text-indigo-600 shrink-0" />
-                    </div>
-                    <div>
-                      <div className="flex items-baseline justify-between">
-                        <span className="text-2xl font-extrabold text-indigo-700">
-                          {homeMetrics.netHaMishpatCases.length}
-                        </span>
-                        <span className="text-[10px] font-extrabold text-indigo-900 bg-indigo-50 px-1.5 py-0.5 rounded-full">
-                          {homeMetrics.netHaMishpatPct}% במעקב
-                        </span>
-                      </div>
-                      <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1.5">
-                        <div
-                          className="h-full bg-indigo-600 rounded-full"
-                          style={{
-                            width: `${Math.max(
-                              homeMetrics.netHaMishpatPct,
-                              8
-                            )}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-                  </button>
-
-                  {/* 6. תיקים רדומים (ללא תנועה 30+ יום) */}
-                  <button
-                    type="button"
-                    onClick={() => handleKpiCardClick('dormant_cases')}
-                    className="p-3 rounded-2xl bg-white border border-slate-200 border-t-4 border-t-slate-600 hover:shadow-md text-right transition flex flex-col justify-between space-y-2 group"
-                  >
-                    <div className="flex items-center justify-between gap-1">
-                      <span className="text-xs font-extrabold text-slate-900 group-hover:text-slate-700">
-                        תיקים רדומים (30+ יום)
-                      </span>
-                      <Moon className="w-4 h-4 text-slate-600 shrink-0" />
-                    </div>
-                    <div>
-                      <div className="flex items-baseline justify-between">
-                        <span className="text-2xl font-extrabold text-slate-700">
-                          {homeMetrics.dormantCases.length}
-                        </span>
-                        <span className="text-[10px] font-extrabold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded-full">
-                          ללא תנועה
-                        </span>
-                      </div>
-                      <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1.5">
-                        <div
-                          className="h-full bg-slate-600 rounded-full"
-                          style={{
-                            width: `${Math.max(homeMetrics.dormantPct, 8)}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-                  </button>
-                </div>
-              </section>
-
-              {/* ============================================================ */}
-              {/* רצועה 3 — פילוח ויזואלי של 4 הקטגוריות + גרפי סטטוס ועומס נקיים */}
-              {/* (ללא כרטיס או חישובי שכר טרחה)                                 */}
-              {/* ============================================================ */}
-              <section className="grid grid-cols-1 lg:grid-cols-12 gap-3">
-                {/* 1. פילוח ויזואלי של 4 הקטגוריות (רשויות, חדל"פ, חברות, חברה משכנת) */}
-                <div className="lg:col-span-7 bg-white p-4 rounded-2xl border border-slate-200 border-t-4 border-t-blue-600 shadow-xs flex flex-col justify-between space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-extrabold text-slate-900">
-                      4 עולמות התוכן
-                    </h3>
-                    <button
-                      type="button"
-                      onClick={() => navigateToCasesScreen('all')}
-                      className="px-3 py-1 rounded-xl bg-slate-900 hover:bg-blue-700 text-white text-xs font-extrabold flex items-center gap-1 transition"
-                    >
-                      <span>כל התיקים ({homeMetrics.totalActiveCases})</span>
-                      <ChevronLeft className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    {homeMetrics.byCategory.map((item) => {
-                      const cat = item.category;
-                      const colorCfg =
-                        cat === 'גבייה'
-                          ? {
-                              bar: 'bg-blue-600',
-                              badge: 'bg-blue-100 text-blue-900 border-blue-300',
-                              border: 'hover:border-blue-400',
-                              icon: Landmark,
-                              iconColor: 'text-blue-600 bg-blue-50',
-                            }
-                          : cat === 'חדל"פ'
-                          ? {
-                              bar: 'bg-purple-600',
-                              badge:
-                                'bg-purple-100 text-purple-900 border-purple-300',
-                              border: 'hover:border-purple-400',
-                              icon: Gavel,
-                              iconColor: 'text-purple-600 bg-purple-50',
-                            }
-                          : cat === 'חברות'
-                          ? {
-                              bar: 'bg-emerald-600',
-                              badge:
-                                'bg-emerald-100 text-emerald-900 border-emerald-300',
-                              border: 'hover:border-emerald-400',
-                              icon: Briefcase,
-                              iconColor: 'text-emerald-600 bg-emerald-50',
-                            }
-                          : {
-                              bar: 'bg-amber-500',
-                              badge:
-                                'bg-amber-100 text-amber-900 border-amber-300',
-                              border: 'hover:border-amber-400',
-                              icon: Building2,
-                              iconColor: 'text-amber-600 bg-amber-50',
-                            };
-                      const IconComp = colorCfg.icon;
-
-                      return (
+                      <div className="relative inline-flex items-center">
                         <button
-                          key={cat}
                           type="button"
-                          onClick={() => navigateToCasesScreen(cat)}
-                          className={`p-3 rounded-xl border border-slate-200 ${colorCfg.border} bg-slate-50/60 hover:bg-white text-right transition shadow-2xs space-y-2 group`}
+                          onClick={() => setIsSmartPasteOpen(true)}
+                          className="px-3.5 py-2.5 rounded-r-xl bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs sm:text-sm flex items-center gap-1.5 shadow-xs transition"
                         >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <div
-                                className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${colorCfg.iconColor}`}
-                              >
-                                <IconComp className="w-4 h-4" />
-                              </div>
-                              <span className="font-extrabold text-slate-900 text-sm truncate group-hover:text-blue-700">
-                                {CATEGORY_LABELS[cat].shortTitle}
-                              </span>
-                            </div>
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-xs font-extrabold border shrink-0 ${colorCfg.badge}`}
-                            >
-                              {item.count} ({item.pct}%)
-                            </span>
-                          </div>
-
-                          <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
-                            <div
-                              className={`h-full rounded-full ${colorCfg.bar} transition-all duration-300`}
-                              style={{
-                                width: `${Math.max(
-                                  item.pct,
-                                  item.count > 0 ? 8 : 0
-                                )}%`,
-                              }}
-                            />
-                          </div>
+                          <ClipboardPaste className="w-4 h-4 shrink-0" />
+                          <span>קליטה חכמה</span>
                         </button>
-                      );
-                    })}
-                  </div>
-                </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowSmartPasteHint((v) => !v)}
+                          title="הסבר והנחיות לקליטה חכמה"
+                          className="px-2 py-2.5 rounded-l-xl bg-blue-700 hover:bg-blue-600 text-sky-200 border-r border-blue-500 font-extrabold text-xs flex items-center justify-center transition"
+                        >
+                          <HelpCircle className="w-4 h-4" />
+                        </button>
 
-                {/* 2. גרפי סטטוס ועומס נקיים (ללא כרטיס או חישובי שכר טרחה) */}
-                <div className="lg:col-span-5 bg-white p-4 rounded-2xl border border-slate-200 border-t-4 border-t-emerald-600 shadow-xs flex flex-col justify-between space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-extrabold text-slate-900 flex items-center gap-1.5">
-                      <TrendingUp className="w-4 h-4 text-emerald-600" />
-                      <span>גרף עומס, שלבים וביצוע משימות</span>
-                    </h3>
-                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-900 border border-emerald-200 text-xs font-extrabold">
-                      {homeMetrics.overallProgressPct}% הושלם
-                    </span>
-                  </div>
-
-                  {/* מד השלמת משימות כללי */}
-                  <div
-                    onClick={() => handleKpiCardClick('overall_progress')}
-                    className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 cursor-pointer hover:border-blue-300 transition"
-                  >
-                    <div className="flex items-center justify-between text-xs font-extrabold mb-1">
-                      <span className="text-slate-800">
-                        השלמת משימות ({homeMetrics.completedMilestones}/
-                        {homeMetrics.totalMilestones} בוצעו ✓)
-                      </span>
-                      <span className="text-blue-700 font-mono text-sm">
-                        {homeMetrics.overallProgressPct}%
-                      </span>
-                    </div>
-                    <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-l from-emerald-500 to-blue-600 rounded-full transition-all duration-300"
-                        style={{ width: `${homeMetrics.overallProgressPct}%` }}
-                      />
+                        {showSmartPasteHint && (
+                          <div className="absolute left-0 top-full mt-2 w-72 sm:w-80 p-3 rounded-xl bg-slate-900 text-white text-xs shadow-2xl border border-slate-700 z-50 space-y-1">
+                            <div className="font-extrabold text-sky-300 flex items-center justify-between">
+                              <span>קליטה חכמה ממייל / נט המשפט</span>
+                              <button
+                                type="button"
+                                onClick={() => setShowSmartPasteHint(false)}
+                                className="text-slate-400 hover:text-white"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                            <p className="text-slate-200 leading-relaxed">
+                              הדבק טקסט חופשי — המערכת מפרידה שם לקוח, סוג פעולה ותאריכים יחסיים (`לעוד 14 ימים`, `מחר`, `בעוד שבוע`).
+                            </p>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
+                </section>
 
-                  {/* גרף עמודות אופקי של 5 שלבי העבודה (התראה, מסירה, הגשה, דיון, הסדר/סגירה) */}
-                  <div className="space-y-1.5">
-                    {homeMetrics.byStage.map((st) => {
-                      const barColor =
-                        st.stage === 'התראה'
-                          ? 'bg-sky-500'
-                          : st.stage === 'מסירה'
-                          ? 'bg-blue-600'
-                          : st.stage === 'הגשה'
-                          ? 'bg-purple-600'
-                          : st.stage === 'דיון'
-                          ? 'bg-amber-500'
-                          : 'bg-emerald-600';
+                {/* ============================================================ */}
+                {/* פריסת 2 עמודות מאוזנת במסך הבית (Modern CRM Workspace):      */}
+                {/* עמודה ימנית: "הדברים החמים של היום והשבוע"                   */}
+                {/* עמודה שמאלית: "מבט-על על הקטגוריות" + גרף עומס נקי           */}
+                {/* ============================================================ */}
+                <section className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-0">
+                  {/* עמודה ימנית (7/12): הדברים החמים של היום והשבוע */}
+                  <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-200 border-t-4 border-t-rose-600 shadow-xs p-4 flex flex-col gap-3 min-h-0">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse" />
+                        <h2 className="text-sm sm:text-base font-extrabold text-slate-900">
+                          הדברים החמים של היום והשבוע
+                        </h2>
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => handleKpiCardClick('dormant_cases')}
+                          className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-extrabold transition"
+                        >
+                          רדומים 30+ יום ({homeMetrics.dormantCases.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsReportsModalOpen(true)}
+                          className="px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 text-[11px] font-extrabold transition"
+                        >
+                          בקרת איחורים ➔
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* כרטיסיות סינון מהיר של הדברים החמים */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setHomeHotFilter(
+                            homeHotFilter === 'hearings' ? 'all' : 'hearings'
+                          )
+                        }
+                        className={`p-2.5 rounded-xl border text-right transition ${
+                          homeHotFilter === 'hearings'
+                            ? 'bg-amber-50 border-amber-500 ring-2 ring-amber-200'
+                            : 'bg-slate-50 border-slate-200 hover:border-amber-300'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-extrabold text-slate-700">
+                            דיונים ודחיות
+                          </span>
+                          <CalendarClock className="w-3.5 h-3.5 text-amber-600" />
+                        </div>
+                        <div className="text-lg font-extrabold text-amber-700 mt-0.5">
+                          {homeMetrics.upcomingHearings.length +
+                            homeMetrics.postponedHearings.length}
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setHomeHotFilter(
+                            homeHotFilter === 'submissions'
+                              ? 'all'
+                              : 'submissions'
+                          )
+                        }
+                        className={`p-2.5 rounded-xl border text-right transition ${
+                          homeHotFilter === 'submissions'
+                            ? 'bg-purple-50 border-purple-500 ring-2 ring-purple-200'
+                            : 'bg-slate-50 border-slate-200 hover:border-purple-300'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-extrabold text-slate-700">
+                            הגשות השבוע/יים
+                          </span>
+                          <FileText className="w-3.5 h-3.5 text-purple-600" />
+                        </div>
+                        <div className="text-lg font-extrabold text-purple-700 mt-0.5">
+                          {homeMetrics.courtSubmissions.length}
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setHomeHotFilter(
+                            homeHotFilter === 'urgent' ? 'all' : 'urgent'
+                          )
+                        }
+                        className={`p-2.5 rounded-xl border text-right transition ${
+                          homeHotFilter === 'urgent'
+                            ? 'bg-red-50 border-red-500 ring-2 ring-red-200'
+                            : 'bg-slate-50 border-slate-200 hover:border-red-300'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-extrabold text-slate-700">
+                            איחורים ודחופים
+                          </span>
+                          <Flame className="w-3.5 h-3.5 text-red-600" />
+                        </div>
+                        <div className="text-lg font-extrabold text-red-600 mt-0.5">
+                          {homeMetrics.urgentTasks.length}
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setHomeHotFilter(
+                            homeHotFilter === 'net' ? 'all' : 'net'
+                          )
+                        }
+                        className={`p-2.5 rounded-xl border text-right transition ${
+                          homeHotFilter === 'net'
+                            ? 'bg-indigo-50 border-indigo-500 ring-2 ring-indigo-200'
+                            : 'bg-slate-50 border-slate-200 hover:border-indigo-300'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-extrabold text-slate-700">
+                            המתנות נט המשפט
+                          </span>
+                          <Gavel className="w-3.5 h-3.5 text-indigo-600" />
+                        </div>
+                        <div className="text-lg font-extrabold text-indigo-700 mt-0.5">
+                          {homeMetrics.netHaMishpatCases.length}
+                        </div>
+                      </button>
+                    </div>
+
+                    {/* רשימה חיה ונקייה לביצוע מיידי */}
+                    {(() => {
+                      const rawList =
+                        homeHotFilter === 'hearings'
+                          ? Array.from(
+                              new Map(
+                                [
+                                  ...homeMetrics.upcomingHearings,
+                                  ...homeMetrics.postponedHearings,
+                                ].map((c) => [c.id, c])
+                              ).values()
+                            )
+                          : homeHotFilter === 'submissions'
+                          ? homeMetrics.courtSubmissions
+                          : homeHotFilter === 'urgent'
+                          ? homeMetrics.urgentTasks
+                          : homeHotFilter === 'net'
+                          ? homeMetrics.netHaMishpatCases
+                          : Array.from(
+                              new Map(
+                                [
+                                  ...homeMetrics.urgentTasks,
+                                  ...homeMetrics.upcomingHearings,
+                                  ...homeMetrics.courtSubmissions,
+                                  ...homeMetrics.postponedHearings,
+                                  ...homeMetrics.netHaMishpatCases,
+                                ].map((c) => [c.id, c])
+                              ).values()
+                            );
+
+                      if (rawList.length === 0) {
+                        return (
+                          <div className="flex-1 flex flex-col items-center justify-center py-8 text-center bg-slate-50 rounded-xl border border-dashed border-slate-300 space-y-2">
+                            <CheckCircle2 className="w-8 h-8 text-emerald-500" />
+                            <div className="text-sm font-extrabold text-slate-800">
+                              אין משימות דחופות או איחורים פתוחים בקבוצה זו ✓
+                            </div>
+                            <p className="text-xs text-slate-500">
+                              ניתן לפתוח תיק חדש או להשתמש בקליטה חכמה למעלה.
+                            </p>
+                          </div>
+                        );
+                      }
+
                       return (
-                        <div key={st.stage} className="space-y-0.5">
-                          <div className="flex items-center justify-between text-xs font-extrabold">
-                            <span className="text-slate-800">{st.stage}</span>
-                            <span className="font-mono text-slate-700">
-                              {st.count} ({st.pct}%)
-                            </span>
-                          </div>
-                          <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                            <div
-                              className={`h-full rounded-full ${barColor}`}
-                              style={{
-                                width: `${Math.max(
-                                  st.pct,
-                                  st.count > 0 ? 6 : 0
-                                )}%`,
-                              }}
-                            />
-                          </div>
+                        <div className="flex-1 overflow-y-auto space-y-2 max-h-[46vh] pr-0.5">
+                          {rawList.slice(0, 18).map((c) => {
+                            const cd = getDueCountdown(c.next_due_date);
+                            const postponed = isPostponedHearingCase(c);
+                            return (
+                              <div
+                                key={c.id}
+                                onClick={() => openCaseDrawer(c, 'executive')}
+                                className="p-3 rounded-xl border border-slate-200 hover:border-blue-400 bg-slate-50/70 hover:bg-blue-50/40 cursor-pointer flex items-center justify-between gap-2 transition"
+                              >
+                                <div className="min-w-0 flex-1 space-y-1">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-slate-200 text-slate-800">
+                                      {c.category}
+                                    </span>
+                                    <span className="font-extrabold text-slate-900 text-xs sm:text-sm truncate">
+                                      {c.debtor_name}
+                                    </span>
+                                    {postponed && (
+                                      <span className="px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 text-[10px] font-extrabold">
+                                        נדחה ({c.extensions_count || 1})
+                                      </span>
+                                    )}
+                                    {c.assigned_to && (
+                                      <span className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-900 text-[10px] font-extrabold">
+                                        👤 {c.assigned_to}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="text-xs text-slate-700 font-bold truncate">
+                                    <span className="text-indigo-800">
+                                      [{c.next_action_type}]
+                                    </span>{' '}
+                                    {c.next_action_description ||
+                                      c.current_stage ||
+                                      c.status}
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-2 shrink-0">
+                                  {c.next_due_date && (
+                                    <span
+                                      className={`px-2 py-0.5 rounded-full text-[11px] font-extrabold ${
+                                        cd.urgency === 'overdue'
+                                          ? 'bg-red-600 text-white'
+                                          : cd.urgency === 'today'
+                                          ? 'bg-amber-400 text-slate-950'
+                                          : 'bg-blue-100 text-blue-900'
+                                      }`}
+                                    >
+                                      {cd.label}
+                                    </span>
+                                  )}
+                                  <ChevronLeft className="w-4 h-4 text-slate-400" />
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       );
-                    })}
+                    })()}
                   </div>
-                </div>
-              </section>
-            </div>
-          ) : (
+
+                  {/* עמודה שמאלית (5/12): מבט-על על הקטגוריות + גרף עומס נקי */}
+                  <div className="lg:col-span-5 flex flex-col gap-3.5">
+                    {/* כרטיסי 4 הקטגוריות עם סרגלי התקדמות */}
+                    <div className="bg-white p-4 rounded-2xl border border-slate-200 border-t-4 border-t-blue-600 shadow-xs space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-extrabold text-slate-900">
+                          מבט-על על הקטגוריות
+                        </h3>
+                        <button
+                          type="button"
+                          onClick={() => navigateToCasesScreen('all')}
+                          className="text-xs font-extrabold text-blue-700 hover:underline"
+                        >
+                          כל התיקים ({homeMetrics.totalActiveCases}) ➔
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {homeMetrics.byCategory.map((item) => {
+                          const cat = item.category;
+                          const colorCfg =
+                            cat === 'גבייה'
+                              ? {
+                                  bar: 'bg-blue-600',
+                                  badge:
+                                    'bg-blue-100 text-blue-900 border-blue-300',
+                                  border: 'hover:border-blue-400',
+                                  icon: Landmark,
+                                  iconColor: 'text-blue-600 bg-blue-50',
+                                }
+                              : cat === 'חדל"פ'
+                              ? {
+                                  bar: 'bg-purple-600',
+                                  badge:
+                                    'bg-purple-100 text-purple-900 border-purple-300',
+                                  border: 'hover:border-purple-400',
+                                  icon: Gavel,
+                                  iconColor: 'text-purple-600 bg-purple-50',
+                                }
+                              : cat === 'חברות'
+                              ? {
+                                  bar: 'bg-emerald-600',
+                                  badge:
+                                    'bg-emerald-100 text-emerald-900 border-emerald-300',
+                                  border: 'hover:border-emerald-400',
+                                  icon: Briefcase,
+                                  iconColor: 'text-emerald-600 bg-emerald-50',
+                                }
+                              : {
+                                  bar: 'bg-amber-500',
+                                  badge:
+                                    'bg-amber-100 text-amber-900 border-amber-300',
+                                  border: 'hover:border-amber-400',
+                                  icon: Building2,
+                                  iconColor: 'text-amber-600 bg-amber-50',
+                                };
+                          const IconComp = colorCfg.icon;
+
+                          return (
+                            <button
+                              key={cat}
+                              type="button"
+                              onClick={() => navigateToCasesScreen(cat)}
+                              className={`p-3 rounded-xl border border-slate-200 ${colorCfg.border} bg-slate-50/60 hover:bg-white text-right transition shadow-2xs space-y-2 group`}
+                            >
+                              <div className="flex items-center justify-between gap-1.5">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <div
+                                    className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${colorCfg.iconColor}`}
+                                  >
+                                    <IconComp className="w-4 h-4" />
+                                  </div>
+                                  <span className="font-extrabold text-slate-900 text-xs truncate group-hover:text-blue-700">
+                                    {CATEGORY_LABELS[cat].shortTitle}
+                                  </span>
+                                </div>
+                                <span
+                                  className={`px-2 py-0.5 rounded-full text-[11px] font-extrabold border shrink-0 ${colorCfg.badge}`}
+                                >
+                                  {item.count}
+                                </span>
+                              </div>
+                              <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full ${colorCfg.bar}`}
+                                  style={{
+                                    width: `${Math.max(
+                                      item.pct,
+                                      item.count > 0 ? 10 : 0
+                                    )}%`,
+                                  }}
+                                />
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* גרף עומס וסטטוסים נקי */}
+                    <div className="bg-white p-4 rounded-2xl border border-slate-200 border-t-4 border-t-emerald-600 shadow-xs space-y-2.5 flex-1">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-extrabold text-slate-900 flex items-center gap-1.5">
+                          <TrendingUp className="w-4 h-4 text-emerald-600" />
+                          <span>גרף עומס ושלבי ביצוע</span>
+                        </h3>
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-900 border border-emerald-200 text-xs font-extrabold">
+                          {homeMetrics.overallProgressPct}% הושלם
+                        </span>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        {homeMetrics.byStage.map((st) => {
+                          const barColor =
+                            st.stage === 'התראה'
+                              ? 'bg-sky-500'
+                              : st.stage === 'מסירה'
+                              ? 'bg-blue-600'
+                              : st.stage === 'הגשה'
+                              ? 'bg-purple-600'
+                              : st.stage === 'דיון'
+                              ? 'bg-amber-500'
+                              : 'bg-emerald-600';
+                          return (
+                            <div key={st.stage} className="space-y-0.5">
+                              <div className="flex items-center justify-between text-xs font-extrabold">
+                                <span className="text-slate-800">
+                                  {st.stage}
+                                </span>
+                                <span className="font-mono text-slate-700">
+                                  {st.count} ({st.pct}%)
+                                </span>
+                              </div>
+                              <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full ${barColor}`}
+                                  style={{
+                                    width: `${Math.max(
+                                      st.pct,
+                                      st.count > 0 ? 6 : 0
+                                    )}%`,
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            ) : (
             /* ============================================================== */
             /* מסך התיקים (screenMode === 'cases'): מוצג בלחיצה על קטגוריה או "כל התיקים" */
             /* ============================================================== */
@@ -2431,56 +2547,60 @@ export default function DashboardPage() {
               </section>
             </div>
           )}
+          </div>
         </div>
 
-        {/* סרגל ניווט תחתון למובייל (< md): מסך הבית | כל התיקים | דוחות | + חדש */}
+        {/* סרגל ניווט תחתון קבוע למובייל (< 768px) נוח לאגודל: בית | חיפוש | קליטה | אלפון */}
         <nav
           aria-label="סרגל ניווט תחתון למובייל"
-          className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-[#0F172A] text-white border-t border-slate-800 px-2 py-1.5 shadow-2xl"
+          className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-[#0F172A] text-white border-t border-slate-800 px-2 py-1.5 shadow-2xl no-print"
         >
           <div className="grid grid-cols-4 gap-1 max-w-md mx-auto">
             <button
               type="button"
               onClick={handleGoHome}
               className={`flex flex-col items-center justify-center py-1.5 px-1 rounded-xl text-[11px] font-extrabold transition ${
-                screenMode === 'home'
+                screenMode === 'home' && !isDirectoryModalOpen
                   ? 'bg-blue-600 text-white'
                   : 'text-slate-300 hover:bg-slate-800'
               }`}
             >
               <Home className="w-4 h-4 mb-0.5 text-white" />
-              <span>מסך הבית</span>
+              <span>בית</span>
             </button>
 
             <button
               type="button"
-              onClick={() => navigateToCasesScreen('all')}
+              onClick={() => {
+                handleGoHome();
+                setTimeout(() => heroSearchInputRef.current?.focus(), 100);
+              }}
+              className="flex flex-col items-center justify-center py-1.5 px-1 rounded-xl text-[11px] font-extrabold text-slate-300 hover:bg-slate-800 transition"
+            >
+              <Search className="w-4 h-4 mb-0.5 text-sky-400" />
+              <span>חיפוש</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsSmartPasteOpen(true)}
+              className="flex flex-col items-center justify-center py-1.5 px-1 rounded-xl text-[11px] font-extrabold bg-emerald-600 text-white shadow-xs transition"
+            >
+              <ClipboardPaste className="w-4 h-4 mb-0.5" />
+              <span>קליטה</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsDirectoryModalOpen(true)}
               className={`flex flex-col items-center justify-center py-1.5 px-1 rounded-xl text-[11px] font-extrabold transition ${
-                screenMode === 'cases'
-                  ? 'bg-blue-600 text-white'
+                isDirectoryModalOpen
+                  ? 'bg-indigo-600 text-white'
                   : 'text-slate-300 hover:bg-slate-800'
               }`}
             >
-              <FolderKanban className="w-4 h-4 mb-0.5 text-sky-400" />
-              <span>כל התיקים</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setIsReportsModalOpen(true)}
-              className="flex flex-col items-center justify-center py-1.5 px-1 rounded-xl text-[11px] font-extrabold text-slate-300 hover:bg-slate-800 transition"
-            >
-              <BarChart3 className="w-4 h-4 mb-0.5 text-indigo-400" />
-              <span>דוחות BI</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setIsNewModalOpen(true)}
-              className="flex flex-col items-center justify-center py-1.5 px-1 rounded-xl text-[11px] font-extrabold bg-emerald-600 text-white shadow-xs transition"
-            >
-              <Plus className="w-4 h-4 mb-0.5" />
-              <span>+ חדש</span>
+              <BookUser className="w-4 h-4 mb-0.5 text-indigo-300" />
+              <span>אלפון</span>
             </button>
           </div>
         </nav>
@@ -2569,8 +2689,18 @@ export default function DashboardPage() {
           municipalitiesSettings={muniSettings}
           currentUser={currentUser}
           onOpenMuniSettingsModal={() => setIsMuniModalOpen(true)}
+          onOpenOfficeDirectory={() => setIsDirectoryModalOpen(true)}
           systemEditMode={systemEditMode}
           selectedCaseIds={selectedCaseIds}
+        />
+
+        <OfficeDirectoryModal
+          isOpen={isDirectoryModalOpen}
+          onClose={() => setIsDirectoryModalOpen(false)}
+          cases={cases}
+          municipalitiesSettings={muniSettings}
+          systemEditMode={systemEditMode}
+          onSelectCase={(c) => openCaseDrawer(c, 'executive')}
         />
 
         <AddCustomFieldModal
@@ -2670,6 +2800,7 @@ export default function DashboardPage() {
             overview: 'מסך כללי ושדות התחום',
             tasks: 'צ׳ק-ליסט משימות ומדידת זמנים',
             logs: 'יומן תרשומות שיחה, החלטות וארכות',
+            conduct: 'דוח בקרת התנהלות ואיחורים — הפקת לקחים ושיפור',
             full: 'דוח תיק מלא (כל האזורים)',
           };
 
@@ -2688,6 +2819,15 @@ export default function DashboardPage() {
             effectiveZone === 'executive' ||
             effectiveZone === 'logs' ||
             effectiveZone === 'full';
+          const showConductZone =
+            effectiveZone === 'conduct' || effectiveZone === 'full';
+          const isMultiCaseConductPrint =
+            Boolean(customPrintList) &&
+            printTitleToRender.startsWith('CONDUCT_REPORT::');
+          const cleanPrintTitle = printTitleToRender.replace(
+            'CONDUCT_REPORT::',
+            ''
+          );
 
           return (
             <>
@@ -2708,7 +2848,7 @@ export default function DashboardPage() {
                       ? `תיק: ${targetCase.debtor_name} (${
                           zoneLabelMap[effectiveZone] || 'דוח תיק'
                         })`
-                      : printTitleToRender}
+                      : cleanPrintTitle}
                   </h1>
                   <p style={{ fontSize: '12px', margin: '4px 0 0 0' }}>
                     הופק ע&quot;י: {currentUser.displayName} ({currentUser.role})
@@ -3048,7 +3188,242 @@ export default function DashboardPage() {
                       )}
                     </div>
                   )}
+                  {/* אזור 4: דוח בקרת התנהלות ואיחורים בתיק (להפקת לקחים ושיפור) */}
+                  {showConductZone &&
+                    (() => {
+                      const caseConduct = buildConductReportSummaryAndRows([
+                        targetCase,
+                      ]);
+                      return (
+                        <div style={{ marginTop: '14px' }}>
+                          <h3
+                            style={{
+                              fontSize: '14px',
+                              fontWeight: 800,
+                              margin: '8px 0',
+                            }}
+                          >
+                            דוח בקרת התנהלות ואיחורים בתיק — הפקת לקחים ושיפור:
+                          </h3>
+                          <table style={{ marginBottom: '10px' }}>
+                            <thead>
+                              <tr>
+                                <th>תגובות והגשות באיחור</th>
+                                <th>סך ימי איחור מצטברים</th>
+                                <th>בקשות ארכה שהתבקשו</th>
+                                <th>סה&quot;כ ימי ארכה שניתנו</th>
+                                <th>החלטות התראה על אי-הגשה</th>
+                                <th>שיעור עמידה במועדים</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <tr>
+                                <td>
+                                  <strong>
+                                    {caseConduct.lateSubmissionsCount}
+                                  </strong>{' '}
+                                  מתוך {caseConduct.totalSubmissions}
+                                </td>
+                                <td>
+                                  <strong>
+                                    {caseConduct.totalCumulativeLateDays} ימים
+                                  </strong>
+                                </td>
+                                <td>
+                                  <strong>
+                                    {caseConduct.totalExtensionRequestsCount}{' '}
+                                    בקשות
+                                  </strong>
+                                </td>
+                                <td>
+                                  <strong>
+                                    {caseConduct.totalExtensionDaysGranted} ימים
+                                  </strong>
+                                </td>
+                                <td>
+                                  <strong>
+                                    {caseConduct.totalLateWarningDecisions}
+                                  </strong>
+                                </td>
+                                <td>
+                                  <strong>
+                                    {caseConduct.onTimeRatePercent}%
+                                  </strong>
+                                </td>
+                              </tr>
+                            </tbody>
+                          </table>
+
+                          <table>
+                            <thead>
+                              <tr>
+                                <th>סוג ונושא ההגשה</th>
+                                <th>החלטת מקור ותגובה לבקשה</th>
+                                <th>תאריך יעד מקורי</th>
+                                <th>בקשות ארכה ויעד מעודכן</th>
+                                <th>תאריך הגשה בפועל</th>
+                                <th>פער ימים (במועד / איחור)</th>
+                                <th>החלטות התראה</th>
+                                <th>אחראי לביצוע</th>
+                                <th>הערכת זמן כתיבה</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {caseConduct.rows.map((r) => (
+                                <tr key={r.id}>
+                                  <td>
+                                    <strong>[{r.documentType}]</strong>{' '}
+                                    {r.subject}
+                                  </td>
+                                  <td>
+                                    <div>{r.sourceDecision}</div>
+                                    {r.responseToRequest !== '—' && (
+                                      <div>תגובה ל: {r.responseToRequest}</div>
+                                    )}
+                                  </td>
+                                  <td>{formatDateHe(r.originalDueDate)}</td>
+                                  <td>
+                                    <div>
+                                      {r.extensionsCount} בקשות (
+                                      {r.totalExtensionDays} ימים)
+                                    </div>
+                                    <div>
+                                      יעד: {formatDateHe(r.currentDueDate)}
+                                    </div>
+                                    {r.extensionsBreakdown && (
+                                      <div>{r.extensionsBreakdown}</div>
+                                    )}
+                                  </td>
+                                  <td>
+                                    {r.actualSubmittedDate
+                                      ? formatDateHe(r.actualSubmittedDate)
+                                      : 'טרם הוגש'}
+                                  </td>
+                                  <td>
+                                    <strong>{r.statusLabel}</strong>
+                                  </td>
+                                  <td>{r.lateWarningDecisionsCount}</td>
+                                  <td>{r.assignee}</td>
+                                  <td>{r.estimatedWritingTime}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      );
+                    })()}
                 </div>
+              ) : isMultiCaseConductPrint ? (
+                /* ========================================================== */
+                /* ב1. הדפסת דוח בקרת התנהלות ואיחורים מרוכז ממסך הדוחות      */
+                /* ========================================================== */
+                (() => {
+                  const multiConduct =
+                    buildConductReportSummaryAndRows(printCasesToRender);
+                  return (
+                    <div>
+                      <table style={{ marginBottom: '12px' }}>
+                        <thead>
+                          <tr>
+                            <th>תגובות והגשות באיחור</th>
+                            <th>סך ימי איחור מצטברים</th>
+                            <th>בקשות ארכה שהתבקשו</th>
+                            <th>סה&quot;כ ימי ארכה שניתנו</th>
+                            <th>החלטות התראה על אי-הגשה</th>
+                            <th>שיעור עמידה במועדים</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td>
+                              <strong>
+                                {multiConduct.lateSubmissionsCount}
+                              </strong>{' '}
+                              מתוך {multiConduct.totalSubmissions}
+                            </td>
+                            <td>
+                              <strong>
+                                {multiConduct.totalCumulativeLateDays} ימים
+                              </strong>
+                            </td>
+                            <td>
+                              <strong>
+                                {multiConduct.totalExtensionRequestsCount} בקשות
+                              </strong>
+                            </td>
+                            <td>
+                              <strong>
+                                {multiConduct.totalExtensionDaysGranted} ימים
+                              </strong>
+                            </td>
+                            <td>
+                              <strong>
+                                {multiConduct.totalLateWarningDecisions}
+                              </strong>
+                            </td>
+                            <td>
+                              <strong>{multiConduct.onTimeRatePercent}%</strong>
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>שם התיק / חברה</th>
+                            <th>סוג ונושא ההגשה</th>
+                            <th>החלטת מקור ותגובה לבקשה</th>
+                            <th>תאריך יעד מקורי</th>
+                            <th>בקשות ארכה ויעד מעודכן</th>
+                            <th>תאריך הגשה בפועל</th>
+                            <th>פער ימים (במועד / איחור)</th>
+                            <th>החלטות התראה</th>
+                            <th>אחראי לביצוע</th>
+                            <th>הערכת זמן כתיבה</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {multiConduct.rows.map((r) => (
+                            <tr key={`${r.caseId}_${r.id}`}>
+                              <td>
+                                <strong>{r.debtorName}</strong> ({r.caseNumber})
+                              </td>
+                              <td>
+                                <strong>[{r.documentType}]</strong> {r.subject}
+                              </td>
+                              <td>
+                                <div>{r.sourceDecision}</div>
+                                {r.responseToRequest !== '—' && (
+                                  <div>תגובה ל: {r.responseToRequest}</div>
+                                )}
+                              </td>
+                              <td>{formatDateHe(r.originalDueDate)}</td>
+                              <td>
+                                <div>
+                                  {r.extensionsCount} בקשות (
+                                  {r.totalExtensionDays} ימים)
+                                </div>
+                                <div>יעד: {formatDateHe(r.currentDueDate)}</div>
+                              </td>
+                              <td>
+                                {r.actualSubmittedDate
+                                  ? formatDateHe(r.actualSubmittedDate)
+                                  : 'טרם הוגש'}
+                              </td>
+                              <td>
+                                <strong>{r.statusLabel}</strong>
+                              </td>
+                              <td>{r.lateWarningDecisionsCount}</td>
+                              <td>{r.assignee}</td>
+                              <td>{r.estimatedWritingTime}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()
               ) : screenMode === 'home' && !customPrintList ? (
                 /* ========================================================== */
                 /* ב. הדפסת מסך הבית עצמו (תמונת מצב ניהולית ומדדים)         */

@@ -26,6 +26,7 @@ import {
 import {
   createCustomFieldAndApply,
   deleteCustomFieldFromCases,
+  renameCustomFieldAcrossCases,
   updateCustomFieldInline,
 } from '@/lib/dataService';
 
@@ -506,6 +507,27 @@ export function InlineCustomFieldsList({
 }: InlineCustomFieldsListProps) {
   const fields = caseItem.custom_fields || [];
 
+  const handleFieldRename = async (
+    e: React.MouseEvent,
+    field: CaseCustomField
+  ) => {
+    e.stopPropagation();
+    const nextLabel = window.prompt(
+      `עריכת שם השדה "${field.label}":`,
+      field.label
+    );
+    if (!nextLabel || !nextLabel.trim() || nextLabel.trim() === field.label) {
+      return;
+    }
+    const updated = await renameCustomFieldAcrossCases({
+      field_key: field.field_key,
+      new_label: nextLabel.trim(),
+      scope: field.scope,
+      target_case_id: caseItem.id,
+    });
+    onCasesUpdated(updated);
+  };
+
   const handleFieldUpdate = async (
     e: React.SyntheticEvent,
     fieldId: string,
@@ -578,6 +600,14 @@ export function InlineCustomFieldsList({
               </button>
               <button
                 type="button"
+                onClick={(e) => handleFieldRename(e, f)}
+                className="text-slate-400 hover:text-blue-600 text-[10px]"
+                title="ערוך שם שדה (✏️)"
+              >
+                ✏️
+              </button>
+              <button
+                type="button"
                 onClick={(e) => handleFieldDelete(e, f)}
                 className="text-slate-400 hover:text-red-600 mr-0.5"
                 title="מחק שדה"
@@ -607,6 +637,14 @@ export function InlineCustomFieldsList({
                 }
                 className="bg-white border border-indigo-200 rounded px-1 py-0.5 text-[11px] font-bold outline-none"
               />
+              <button
+                type="button"
+                onClick={(e) => handleFieldRename(e, f)}
+                className="text-slate-400 hover:text-blue-600 text-[10px]"
+                title="ערוך שם שדה (✏️)"
+              >
+                ✏️
+              </button>
               <button
                 type="button"
                 onClick={(e) => handleFieldDelete(e, f)}
@@ -662,6 +700,14 @@ export function InlineCustomFieldsList({
               />
               <button
                 type="button"
+                onClick={(e) => handleFieldRename(e, f)}
+                className="text-slate-400 hover:text-blue-600 text-[10px]"
+                title="ערוך שם תזכורת (✏️)"
+              >
+                ✏️
+              </button>
+              <button
+                type="button"
                 onClick={(e) => handleFieldDelete(e, f)}
                 className="text-slate-400 hover:text-red-600"
                 title="מחק תזכורת"
@@ -688,6 +734,14 @@ export function InlineCustomFieldsList({
               placeholder="הקלד..."
               className="bg-white border border-blue-200 rounded px-1.5 py-0.5 text-[11px] font-bold w-24 focus:w-40 outline-none transition-all"
             />
+            <button
+              type="button"
+              onClick={(e) => handleFieldRename(e, f)}
+              className="text-slate-400 hover:text-blue-600 text-[10px]"
+              title="ערוך שם שדה (✏️)"
+            >
+              ✏️
+            </button>
             <button
               type="button"
               onClick={(e) => handleFieldDelete(e, f)}

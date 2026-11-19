@@ -37,6 +37,7 @@ import {
   Lock,
   Unlock,
   ClipboardPaste,
+  BookUser,
 } from 'lucide-react';
 import {
   CASE_CATEGORIES,
@@ -44,6 +45,9 @@ import {
   CASE_STATUSES,
   CASE_TAGS,
   CATEGORY_LABELS,
+  COMPANY_DOCUMENTS_STAGES,
+  COMPANY_DOCUMENT_TYPES,
+  COMPANY_ENTITY_CHECK_STATUSES,
   COMPANY_RESOLUTION_DECISIONS,
   CONDOMINIUM_FIT_STATUSES,
   CaseCategory,
@@ -53,10 +57,18 @@ import {
   CaseMilestone,
   CaseStatus,
   CaseTag,
+  CompanyDocumentType,
+  CompanyDocumentsStage,
+  CompanyEntityCheckStatus,
+  CompanyEntityChecks,
+  CompanyHearingItem,
   CompanyResolutionDecision,
+  CompanySubmissionItem,
   CondominiumFitStatus,
   GACHLAT_STATUSES,
   GachlatStatus,
+  HEARING_LIVE_STATUSES,
+  HearingLiveStatus,
   INSOLVENCY_DEBTOR_TYPES,
   INVESTIGATION_OUTCOMES,
   InsolvencyDebtorType,
@@ -70,7 +82,10 @@ import {
   NEXT_ACTION_TYPES,
   NetHaMishpatStatus,
   NextActionType,
+  OfficeContactItem,
+  TASK_EXECUTION_STATES,
   TASK_URGENCIES,
+  TaskExecutionState,
   TaskUrgency,
   UserSession,
   WRITEOFF_CLASSIFICATIONS,
@@ -78,13 +93,27 @@ import {
 } from '@/types/database';
 import {
   StageBulkApplyScope,
+  addAssigneeName,
   addCaseLog,
+  addCustomActionTag,
+  addCustomCaseTag,
+  buildCompanyLifecycleMilestones,
   bulkApplyDistrictToCases,
   bulkApplyStageMutation,
+  deleteAssigneeName,
   deleteCaseItem,
   deleteCaseLog,
+  deleteCustomCaseTag,
   fetchCaseLogs,
   generateId,
+  getActionTagsList,
+  getAssigneesList,
+  getCustomTagsList,
+  getCustomUiLabels,
+  getOfficeContacts,
+  renameAssigneeName,
+  renameCustomCaseTag,
+  saveCustomUiLabel,
   updateCaseItem,
 } from '@/lib/dataService';
 import {
@@ -96,17 +125,27 @@ import {
   getDueCountdown,
   isDeliveryOver30DaysAlert,
 } from '@/lib/dateUtils';
-import { exportSingleCaseToXlsx } from './ExcelExportModal';
+import {
+  buildConductReportSummaryAndRows,
+  exportConductAndDelayReportToXlsx,
+  exportSingleCaseToXlsx,
+} from './ExcelExportModal';
 import CopyButton from './CopyButton';
 import { InlineCustomFieldsList } from './CustomFieldsManager';
 
-export type DrawerTab = 'executive' | 'overview' | 'tasks' | 'logs';
+export type DrawerTab =
+  | 'executive'
+  | 'overview'
+  | 'tasks'
+  | 'logs'
+  | 'conduct';
 export type CasePrintZone =
   | 'summary'
   | 'active_tab'
   | 'overview'
   | 'tasks'
   | 'logs'
+  | 'conduct'
   | 'full';
 
 interface CaseDrawerProps {
@@ -127,6 +166,7 @@ interface CaseDrawerProps {
   municipalitiesSettings: MunicipalitySetting[];
   currentUser: UserSession;
   onOpenMuniSettingsModal?: () => void;
+  onOpenOfficeDirectory?: () => void;
   onOpenNewCaseModal?: () => void;
   onOpenSmartPasteModal?: () => void;
   systemEditMode?: boolean;
@@ -146,6 +186,7 @@ export default function CaseDrawer({
   municipalitiesSettings,
   currentUser,
   onOpenMuniSettingsModal,
+  onOpenOfficeDirectory,
   systemEditMode = false,
   selectedCaseIds = [],
 }: CaseDrawerProps) {
@@ -196,10 +237,25 @@ export default function CaseDrawer({
   const [nextActionType, setNextActionType] = useState<NextActionType>('אחר');
   const [nextActionDescription, setNextActionDescription] = useState('');
   const [nextDueDate, setNextDueDate] = useState('');
+  const [assignedTo, setAssignedTo] = useState('');
   const [extensionsCount, setExtensionsCount] = useState<number>(0);
+  const [totalExtensionDays, setTotalExtensionDays] = useState<number>(0);
+  const [lateWarningDecisionsCount, setLateWarningDecisionsCount] =
+    useState<number>(0);
   const [isHearingPostponed, setIsHearingPostponed] = useState<boolean>(false);
   const [postponedReason, setPostponedReason] = useState('');
   const [trusteeReportDueDate, setTrusteeReportDueDate] = useState('');
+
+  // ניהול אחראים לביצוע (Assignees) + תגיות ותוויות גמישות ב-Live Admin Edit Mode (v8.5)
+  const [assigneesList, setAssigneesList] = useState<string[]>([]);
+  const [showAssigneesManager, setShowAssigneesManager] =
+    useState<boolean>(false);
+  const [newAssigneeInput, setNewAssigneeInput] = useState('');
+  const [customTagsList, setCustomTagsList] = useState<string[]>([]);
+  const [newCustomTagInput, setNewCustomTagInput] = useState('');
+  const [customUiLabels, setCustomUiLabels] = useState<Record<string, string>>(
+    {}
+  );
 
   // 1. שדות מודול תיקי רשויות:
   const [debtYears, setDebtYears] = useState('');
@@ -239,10 +295,25 @@ export default function CaseDrawer({
   const [creditorResponsesNotes, setCreditorResponsesNotes] = useState('');
   const [newDebtsTracking, setNewDebtsTracking] = useState('');
 
-  // 3. שדות מודול תיקי חברות (נאמן / מפרק):
+  // 3. שדות מודול תיקי חברות (נאמן / מפרק / כינוס / שיקום — גרסה 8.6):
+  const [appointmentDate, setAppointmentDate] = useState('');
+  const [guaranteeBondDueDate, setGuaranteeBondDueDate] = useState('');
   const [selfUndertakingDeposited, setSelfUndertakingDeposited] =
     useState<boolean>(false);
   const [selfUndertakingDate, setSelfUndertakingDate] = useState('');
+  const [companyEntityChecks, setCompanyEntityChecks] =
+    useState<CompanyEntityChecks>({
+      company_extract_status: 'טרם נשלח',
+      company_extract_notes: '',
+      financial_entities_status: 'טרם נשלח',
+      financial_entities_notes: '',
+      tax_authority_status: 'טרם נשלח',
+      tax_authority_notes: '',
+      insurance_pension_status: 'טרם נשלח',
+      insurance_pension_notes: '',
+    });
+  const [companyDocumentsStage, setCompanyDocumentsStage] =
+    useState<CompanyDocumentsStage>('קבלת מסמכים');
   const [insuranceAndAssetsLettersStatus, setInsuranceAndAssetsLettersStatus] =
     useState('');
   const [representativeContactDetails, setRepresentativeContactDetails] =
@@ -258,6 +329,34 @@ export default function CaseDrawer({
   const [trusteeFindingsSummary, setTrusteeFindingsSummary] = useState('');
   const [companyResolutionDecision, setCompanyResolutionDecision] =
     useState<CompanyResolutionDecision>('טרם הוכרע');
+  const [companyHearings, setCompanyHearings] = useState<CompanyHearingItem[]>(
+    []
+  );
+  const [companySubmissions, setCompanySubmissions] = useState<
+    CompanySubmissionItem[]
+  >([]);
+  const [submissionsTimeFilter, setSubmissionsTimeFilter] = useState<
+    'all' | 'week1' | 'week2' | 'later' | 'overdue' | 'submitted'
+  >('all');
+
+  // טופס הוספת דיון בענף דיונים (חברות)
+  const [newHearingTitle, setNewHearingTitle] = useState('');
+  const [newHearingDate, setNewHearingDate] = useState('');
+  const [newHearingStatus, setNewHearingStatus] =
+    useState<HearingLiveStatus>('מתקיים');
+  const [newHearingCourt, setNewHearingCourt] = useState('');
+  const [newHearingAssignee, setNewHearingAssignee] = useState('');
+
+  // טופס הוספת הגשה / תגובה / דוח נאמן בענף הגשות (חברות)
+  const [newSubDocType, setNewSubDocType] =
+    useState<CompanyDocumentType>('תגובה');
+  const [newSubTitle, setNewSubTitle] = useState('');
+  const [newSubDecisionRef, setNewSubDecisionRef] = useState('');
+  const [newSubDecisionDate, setNewSubDecisionDate] = useState('');
+  const [newSubResponseTo, setNewSubResponseTo] = useState('');
+  const [newSubDueDate, setNewSubDueDate] = useState('');
+  const [newSubAssignee, setNewSubAssignee] = useState('');
+  const [newSubEstTime, setNewSubEstTime] = useState('');
 
   // 4. שדות מודול חברה משכנת (רישום וזכויות):
   const [housingProjectName, setHousingProjectName] = useState('');
@@ -283,22 +382,49 @@ export default function CaseDrawer({
   const [newBuyerCertificateIssued, setNewBuyerCertificateIssued] =
     useState<boolean>(false);
 
-  // הוספת משימה חדשה בצ'ק-ליסט (עם דחיפות ומשך ביצוע מתוכנן בימים)
+  // הוספת משימה חדשה בצ'ק-ליסט (עם דחיפות, אחראי, הוראת מנהל/רון, תגית פעולה ומשימת המשך משורשרת)
   const [newMilestoneTitle, setNewMilestoneTitle] = useState('');
   const [newMilestoneUrgency, setNewMilestoneUrgency] =
     useState<TaskUrgency>('גבוהה');
   const [newMilestonePlannedDays, setNewMilestonePlannedDays] = useState<
     number | ''
   >('');
+  const [newMilestoneAssignee, setNewMilestoneAssignee] = useState('');
+  const [newMilestoneIsManagerInst, setNewMilestoneIsManagerInst] =
+    useState<boolean>(false);
+  const [newMilestoneExecState, setNewMilestoneExecState] =
+    useState<TaskExecutionState>('בטיפול');
+  const [newMilestoneActionTag, setNewMilestoneActionTag] =
+    useState<string>('התקשרות');
+  const [newMilestoneFollowUpTitle, setNewMilestoneFollowUpTitle] =
+    useState<string>('');
+  const [newMilestoneContactRef, setNewMilestoneContactRef] =
+    useState<string>('');
+  const [tasksExecutionFilter, setTasksExecutionFilter] = useState<
+    'all' | 'manager' | TaskExecutionState
+  >('all');
+
+  // תגיות פעולה גמישות ואלפון משרדי לשליפה מהירה בתיק (v8.6)
+  const [actionTagsList, setActionTagsList] = useState<string[]>([]);
+  const [newActionTagInput, setNewActionTagInput] = useState('');
+  const [officeContactsList, setOfficeContactsList] = useState<
+    OfficeContactItem[]
+  >([]);
 
   // הוספת שורת דיווח הפחתה חודשית חדשה
   const [newRedMonth, setNewRedMonth] = useState('');
   const [newRedAmount, setNewRedAmount] = useState<number>(0);
   const [newRedNotes, setNewRedNotes] = useState('');
 
-  // טופס מהיר להוספת תרשומת שיחה / הערה / תזכורת / החלטה / ארכה ודחיית דיון
+  // טופס מהיר להוספת תרשומת שיחה / הערה / תזכורת / החלטה / ארכה ודחיית דיון + הוראת מנהל ומשימת המשך
   const [logType, setLogType] = useState<LogType>('תרשומת שיחה');
   const [logContent, setLogContent] = useState('');
+  const [logIsManagerInst, setLogIsManagerInst] = useState<boolean>(false);
+  const [logExecState, setLogExecState] =
+    useState<TaskExecutionState>('בטיפול');
+  const [logActionTag, setLogActionTag] = useState<string>('התקשרות');
+  const [logContactRef, setLogContactRef] = useState<string>('');
+  const [logFollowUpTaskTitle, setLogFollowUpTaskTitle] = useState<string>('');
   const [updateNextInOneClick, setUpdateNextInOneClick] = useState(true);
   const [quickNextActionType, setQuickNextActionType] =
     useState<NextActionType>('תגובה');
@@ -360,10 +486,20 @@ export default function CaseDrawer({
     setNextActionType(caseItem.next_action_type || 'אחר');
     setNextActionDescription(caseItem.next_action_description || '');
     setNextDueDate(caseItem.next_due_date || '');
+    setAssignedTo(caseItem.assigned_to || '');
     setExtensionsCount(Number(caseItem.extensions_count) || 0);
+    setTotalExtensionDays(Number(caseItem.total_extension_days) || 0);
+    setLateWarningDecisionsCount(
+      Number(caseItem.late_warning_decisions_count) || 0
+    );
     setIsHearingPostponed(Boolean(caseItem.is_hearing_postponed));
     setPostponedReason(caseItem.postponed_reason || '');
     setTrusteeReportDueDate(caseItem.trustee_report_due_date || '');
+    setAssigneesList(getAssigneesList());
+    setCustomTagsList(getCustomTagsList());
+    setCustomUiLabels(getCustomUiLabels());
+    setActionTagsList(getActionTagsList());
+    setOfficeContactsList(getOfficeContacts(undefined, municipalitiesSettings));
 
     // 1. רשויות
     setDebtYears(caseItem.debt_years || '');
@@ -402,8 +538,30 @@ export default function CaseDrawer({
     setNewDebtsTracking(caseItem.new_debts_tracking || '');
 
     // 3. חברות
+    setAppointmentDate(caseItem.appointment_date || '');
+    setGuaranteeBondDueDate(
+      caseItem.guarantee_bond_due_date ||
+        (caseItem.appointment_date
+          ? addDaysToDateStr(caseItem.appointment_date, 14) || ''
+          : '')
+    );
     setSelfUndertakingDeposited(Boolean(caseItem.self_undertaking_deposited));
     setSelfUndertakingDate(caseItem.self_undertaking_date || '');
+    setCompanyEntityChecks(
+      caseItem.company_entity_checks || {
+        company_extract_status: 'טרם נשלח',
+        company_extract_notes: '',
+        financial_entities_status: 'טרם נשלח',
+        financial_entities_notes: '',
+        tax_authority_status: 'טרם נשלח',
+        tax_authority_notes: '',
+        insurance_pension_status: 'טרם נשלח',
+        insurance_pension_notes: '',
+      }
+    );
+    setCompanyDocumentsStage(
+      caseItem.company_documents_stage || 'קבלת מסמכים'
+    );
     setInsuranceAndAssetsLettersStatus(
       caseItem.insurance_and_assets_letters_status || ''
     );
@@ -418,6 +576,14 @@ export default function CaseDrawer({
     setTrusteeFindingsSummary(caseItem.trustee_findings_summary || '');
     setCompanyResolutionDecision(
       caseItem.company_resolution_decision || 'טרם הוכרע'
+    );
+    setCompanyHearings(
+      Array.isArray(caseItem.company_hearings) ? caseItem.company_hearings : []
+    );
+    setCompanySubmissions(
+      Array.isArray(caseItem.company_submissions)
+        ? caseItem.company_submissions
+        : []
     );
 
     // 4. חברה משכנת
@@ -516,7 +682,10 @@ export default function CaseDrawer({
         next_action_type: nextActionType,
         next_action_description: nextActionDescription.trim(),
         next_due_date: nextDueDate || null,
+        assigned_to: assignedTo.trim(),
         extensions_count: Number(extensionsCount) || 0,
+        total_extension_days: Number(totalExtensionDays) || 0,
+        late_warning_decisions_count: Number(lateWarningDecisionsCount) || 0,
         is_hearing_postponed: isHearingPostponed,
         postponed_reason: postponedReason.trim(),
         trustee_report_due_date: trusteeReportDueDate || null,
@@ -551,8 +720,12 @@ export default function CaseDrawer({
         new_debts_tracking: newDebtsTracking.trim(),
 
         // חברות
+        appointment_date: appointmentDate || null,
+        guarantee_bond_due_date: guaranteeBondDueDate || null,
         self_undertaking_deposited: selfUndertakingDeposited,
         self_undertaking_date: selfUndertakingDate || null,
+        company_entity_checks: companyEntityChecks,
+        company_documents_stage: companyDocumentsStage,
         insurance_and_assets_letters_status:
           insuranceAndAssetsLettersStatus.trim(),
         representative_contact_details: representativeContactDetails.trim(),
@@ -563,6 +736,8 @@ export default function CaseDrawer({
         missing_documents_details: missingDocumentsDetails.trim(),
         trustee_findings_summary: trusteeFindingsSummary.trim(),
         company_resolution_decision: companyResolutionDecision,
+        company_hearings: companyHearings,
+        company_submissions: companySubmissions,
 
         // חברה משכנת
         housing_project_name: housingProjectName.trim(),
@@ -619,10 +794,15 @@ export default function CaseDrawer({
     nextActionType,
     nextActionDescription,
     nextDueDate,
+    assignedTo,
     extensionsCount,
+    totalExtensionDays,
+    lateWarningDecisionsCount,
     isHearingPostponed,
     postponedReason,
     trusteeReportDueDate,
+    companyHearings,
+    companySubmissions,
     debtYears,
     principalAmount,
     interestAmount,
@@ -648,8 +828,12 @@ export default function CaseDrawer({
     debtClaimAmount,
     creditorResponsesNotes,
     newDebtsTracking,
+    appointmentDate,
+    guaranteeBondDueDate,
     selfUndertakingDeposited,
     selfUndertakingDate,
+    companyEntityChecks,
+    companyDocumentsStage,
     insuranceAndAssetsLettersStatus,
     representativeContactDetails,
     investigatingTrusteeName,
@@ -887,14 +1071,23 @@ export default function CaseDrawer({
     setMilestones(nextMs);
   };
 
-  // 6. ניהול משימות וצ'ק-ליסט + דחיפות + מדידת זמנים
-  const handleMilestoneStatusChange = (
+  // 6. ניהול משימות וצ'ק-ליסט + דחיפות + מדידת זמנים + פתיחה אוטומטית של משימת המשך משורשרת
+  const handleMilestoneStatusChange = async (
     msId: string,
     newMsStatus: MilestoneStatus
   ) => {
     const today = new Date().toISOString().split('T')[0];
-    setMilestones((prev) =>
-      prev.map((m) => {
+    let chainedTaskToOpen: string | null = null;
+    let completedTaskTitle = '';
+
+    setMilestones((prev) => {
+      const target = prev.find((m) => m.id === msId);
+      if (newMsStatus === 'done' && target?.follow_up_title?.trim()) {
+        chainedTaskToOpen = target.follow_up_title.trim();
+        completedTaskTitle = target.title;
+      }
+
+      const updatedList = prev.map((m) => {
         if (m.id !== msId) return m;
         const started =
           m.started_at || (newMsStatus !== 'upcoming' ? today : null);
@@ -903,13 +1096,58 @@ export default function CaseDrawer({
         return {
           ...m,
           status: newMsStatus,
+          execution_state:
+            newMsStatus === 'done' ? ('בוצע' as TaskExecutionState) : 'בטיפול',
           started_at: started,
           completed_at: completed,
           days_spent: days,
           updated_by: currentUser.displayName,
         };
-      })
-    );
+      });
+
+      if (chainedTaskToOpen) {
+        const existingIdx = updatedList.findIndex(
+          (m) =>
+            m.title === chainedTaskToOpen ||
+            (chainedTaskToOpen && m.title.includes(chainedTaskToOpen))
+        );
+        if (existingIdx !== -1) {
+          updatedList[existingIdx] = {
+            ...updatedList[existingIdx],
+            status: 'in_progress',
+            execution_state: 'בטיפול',
+            started_at: updatedList[existingIdx].started_at || today,
+            updated_by: currentUser.displayName,
+          };
+        } else {
+          updatedList.unshift({
+            id: generateId(),
+            title: chainedTaskToOpen,
+            status: 'in_progress',
+            execution_state: 'בטיפול',
+            urgency: 'גבוהה',
+            planned_days: 7,
+            started_at: today,
+            completed_at: null,
+            days_spent: 0,
+            assignee: target?.assignee || assignedTo || '',
+            updated_by: currentUser.displayName,
+          });
+        }
+      }
+
+      return updatedList;
+    });
+
+    if (chainedTaskToOpen) {
+      const log = await addCaseLog({
+        case_id: caseItem.id,
+        log_type: 'פעולה נדרשת',
+        content: `🔗 שרשור אוטומטי: עם השלמת המשימה "${completedTaskTitle}", נפתחה אוטומטית משימת ההמשך: "${chainedTaskToOpen}"`,
+        created_by: currentUser.displayName,
+      });
+      setLogs((prev) => [log, ...prev]);
+    }
   };
 
   const handleMilestoneTitleChange = (msId: string, newTitle: string) => {
@@ -963,24 +1201,422 @@ export default function CaseDrawer({
     );
   };
 
+  const handleMilestoneAssigneeChange = (msId: string, assigneeVal: string) => {
+    setMilestones((prev) =>
+      prev.map((m) =>
+        m.id === msId
+          ? {
+              ...m,
+              assignee: assigneeVal,
+              updated_by: currentUser.displayName,
+            }
+          : m
+      )
+    );
+  };
+
+  const handleMilestoneExecutionStateChange = (
+    msId: string,
+    nextState: TaskExecutionState
+  ) => {
+    if (nextState === 'בוצע') {
+      handleMilestoneStatusChange(msId, 'done');
+      return;
+    }
+    setMilestones((prev) =>
+      prev.map((m) =>
+        m.id === msId
+          ? {
+              ...m,
+              execution_state: nextState,
+              status: m.status === 'done' ? 'in_progress' : m.status,
+              updated_by: currentUser.displayName,
+            }
+          : m
+      )
+    );
+  };
+
+  const handleMilestoneManagerInstToggle = (msId: string) => {
+    setMilestones((prev) =>
+      prev.map((m) =>
+        m.id === msId
+          ? {
+              ...m,
+              is_manager_instruction: !m.is_manager_instruction,
+              updated_by: currentUser.displayName,
+            }
+          : m
+      )
+    );
+  };
+
   const handleAddMilestone = () => {
     if (!newMilestoneTitle.trim()) return;
     const today = new Date().toISOString().split('T')[0];
     const created: CaseMilestone = {
       id: generateId(),
       title: newMilestoneTitle.trim(),
-      status: 'in_progress',
+      status: newMilestoneExecState === 'בוצע' ? 'done' : 'in_progress',
       urgency: newMilestoneUrgency,
       planned_days: Number(newMilestonePlannedDays) || 7,
       due_date: newTaskDueDate || null,
+      assignee: newMilestoneAssignee || assignedTo || '',
+      is_manager_instruction: newMilestoneIsManagerInst,
+      execution_state: newMilestoneExecState,
+      action_tag: newMilestoneActionTag || '',
+      follow_up_title: newMilestoneFollowUpTitle.trim() || undefined,
+      contact_ref: newMilestoneContactRef || undefined,
       started_at: today,
-      completed_at: null,
+      completed_at: newMilestoneExecState === 'בוצע' ? today : null,
       days_spent: 0,
       updated_by: currentUser.displayName,
     };
     setMilestones((prev) => [created, ...prev]);
     setNewMilestoneTitle('');
     setNewTaskDueDate('');
+    setNewMilestoneFollowUpTitle('');
+    setNewMilestoneIsManagerInst(false);
+    setNewMilestoneContactRef('');
+  };
+
+  const handleAppointmentDateChange = (dateVal: string) => {
+    setAppointmentDate(dateVal);
+    if (dateVal) {
+      const bondDue14 = addDaysToDateStr(dateVal, 14);
+      if (bondDue14) {
+        setGuaranteeBondDueDate(bondDue14);
+      }
+    }
+  };
+
+  const handleLoadCompanyLifecycleTemplate = async () => {
+    const baseAppDate =
+      appointmentDate || new Date().toISOString().split('T')[0];
+    if (!appointmentDate) {
+      setAppointmentDate(baseAppDate);
+    }
+    const bondDue14 = addDaysToDateStr(baseAppDate, 14) || baseAppDate;
+    setGuaranteeBondDueDate(bondDue14);
+
+    const templateMilestones = buildCompanyLifecycleMilestones(
+      baseAppDate,
+      assignedTo || assigneesList[0] || 'אליאב'
+    );
+
+    setMilestones((prev) => {
+      const existingTitles = new Set(prev.map((m) => m.title));
+      const toAdd = templateMilestones.filter(
+        (tm) => !existingTitles.has(tm.title)
+      );
+      return [...prev, ...toAdd];
+    });
+
+    const log = await addCaseLog({
+      case_id: caseItem.id,
+      log_type: 'פעולה נדרשת',
+      content: `⚡ נטען מסלול חיים מובנה מלא לתיק חברה ממועד המינוי (${formatDateHe(
+        baseAppDate
+      )}): יעד הגשת כתב ערובה נקבע אוטומטית ל-${formatDateHe(
+        bondDue14
+      )} (14 ימים מהמינוי), כולל בדיקות מול גופים, חקירה, מסמכים וצומת הכרעה.`,
+      due_date: bondDue14,
+      created_by: currentUser.displayName,
+    });
+    setLogs((prev) => [log, ...prev]);
+  };
+
+  // ============================================================================
+  // ענפי ניהול ייעודיים בתיקי חברות (פירוק / כינוס / שיקום — גרסה 8.5):
+  // א. ענף דיונים (מתקיים / נדחה / בוטל + היסטוריית דחיות)
+  // ב. ענף הגשות, תגובות ודוחות נאמן (ייחוס משפטי, מונה ארכות, איחורים והערכת זמן כתיבה)
+  // ============================================================================
+  const handleAddCompanyHearing = async () => {
+    if (!newHearingTitle.trim() || !newHearingDate) return;
+    const created: CompanyHearingItem = {
+      id: generateId(),
+      title: newHearingTitle.trim(),
+      hearing_date: newHearingDate,
+      status: newHearingStatus,
+      judge_or_court: newHearingCourt.trim(),
+      assignee: newHearingAssignee || assignedTo || assigneesList[0] || '',
+      postponements_count: newHearingStatus === 'נדחה' ? 1 : 0,
+      postponement_history: [],
+    };
+    setCompanyHearings((prev) => [created, ...prev]);
+    setNewHearingTitle('');
+    setNewHearingDate('');
+    setNewHearingCourt('');
+
+    const log = await addCaseLog({
+      case_id: caseItem.id,
+      log_type: 'תזכורת אישית/מועד',
+      content: `נוסף דיון בתיק חברות: "${created.title}" למועד ${formatDateHe(
+        created.hearing_date
+      )} (סטטוס: ${created.status}${
+        created.assignee ? ` | אחראי: ${created.assignee}` : ''
+      })`,
+      due_date: created.hearing_date,
+      created_by: currentUser.displayName,
+    });
+    setLogs((prev) => [log, ...prev]);
+  };
+
+  const handleUpdateHearingStatus = (
+    hearingId: string,
+    nextStatus: HearingLiveStatus
+  ) => {
+    setCompanyHearings((prev) =>
+      prev.map((h) => (h.id === hearingId ? { ...h, status: nextStatus } : h))
+    );
+  };
+
+  const handlePostponeCompanyHearing = async (hearing: CompanyHearingItem) => {
+    const newDate = window.prompt(
+      `הזן מועד דיון חדש (YYYY-MM-DD) עבור "${hearing.title}":`,
+      addDaysToDateStr(hearing.hearing_date, 14) || hearing.hearing_date
+    );
+    if (!newDate || !newDate.trim()) return;
+    const reason =
+      window.prompt('הזן סיבת דחיית הדיון / החלטה:', 'נדחה בהחלטת ביהמ"ש') ||
+      'נדחה בהחלטת ביהמ"ש';
+
+    const record = {
+      id: generateId(),
+      previous_date: hearing.hearing_date,
+      new_date: newDate.trim(),
+      reason: reason.trim(),
+      recorded_at: new Date().toISOString(),
+      recorded_by: currentUser.displayName,
+    };
+
+    setCompanyHearings((prev) =>
+      prev.map((h) =>
+        h.id === hearing.id
+          ? {
+              ...h,
+              hearing_date: newDate.trim(),
+              status: 'נדחה',
+              postponements_count: (Number(h.postponements_count) || 0) + 1,
+              postponement_history: [record, ...(h.postponement_history || [])],
+            }
+          : h
+      )
+    );
+    setExtensionsCount((prev) => (Number(prev) || 0) + 1);
+    setIsHearingPostponed(true);
+    setPostponedReason(reason.trim());
+
+    const log = await addCaseLog({
+      case_id: caseItem.id,
+      log_type: 'בקשת ארכה / דחיית דיון',
+      content: `דחיית דיון "${hearing.title}": ממועד ${formatDateHe(
+        hearing.hearing_date
+      )} למועד ${formatDateHe(newDate.trim())} | סיבה: ${reason.trim()}`,
+      due_date: newDate.trim(),
+      created_by: currentUser.displayName,
+    });
+    setLogs((prev) => [log, ...prev]);
+  };
+
+  const handleDeleteCompanyHearing = (hearingId: string) => {
+    setCompanyHearings((prev) => prev.filter((h) => h.id !== hearingId));
+  };
+
+  const handleAddCompanySubmission = async () => {
+    if (!newSubTitle.trim() || !newSubDueDate) return;
+    const created: CompanySubmissionItem = {
+      id: generateId(),
+      document_type: newSubDocType,
+      title: newSubTitle.trim(),
+      related_decision_ref: newSubDecisionRef.trim() || 'החלטת ביהמ"ש',
+      related_decision_date: newSubDecisionDate || null,
+      response_to_request: newSubResponseTo.trim(),
+      short_description: newSubResponseTo.trim(),
+      original_due_date: newSubDueDate,
+      due_date: newSubDueDate,
+      submitted_at: null,
+      is_submitted: false,
+      extensions_count: 0,
+      total_extension_days: 0,
+      extension_requests: [],
+      late_warning_decisions_count: 0,
+      estimated_writing_time: newSubEstTime.trim() || '3 שעות',
+      assignee: newSubAssignee || assignedTo || assigneesList[0] || 'אליאב',
+      updated_by: currentUser.displayName,
+    };
+
+    setCompanySubmissions((prev) => [created, ...prev]);
+    setNewSubTitle('');
+    setNewSubDecisionRef('');
+    setNewSubDecisionDate('');
+    setNewSubResponseTo('');
+    setNewSubDueDate('');
+    setNewSubEstTime('');
+
+    const log = await addCaseLog({
+      case_id: caseItem.id,
+      log_type: 'פעולה נדרשת',
+      content: `נוספה הגשה בענף חברות [${created.document_type}]: "${
+        created.title
+      }" | ביחס להחלטה: ${created.related_decision_ref}${
+        created.related_decision_date
+          ? ` (${formatDateHe(created.related_decision_date)})`
+          : ''
+      } | יעד מקורי: ${formatDateHe(created.original_due_date)} | אחראי: ${
+        created.assignee
+      } | הערכת זמן כתיבה: ${created.estimated_writing_time}`,
+      due_date: created.due_date,
+      created_by: currentUser.displayName,
+    });
+    setLogs((prev) => [log, ...prev]);
+  };
+
+  const handleAddSubmissionExtension = async (sub: CompanySubmissionItem) => {
+    const reqDaysStr = window.prompt(
+      `בקשת ארכה עבור "${sub.title}" — לכמה ימים התבקשה הארכה?`,
+      '7'
+    );
+    if (!reqDaysStr) return;
+    const reqDays = Math.max(1, Number(reqDaysStr) || 7);
+    const appDaysStr = window.prompt(
+      `כמה ימי ארכה אושרו/ניתנו בפועל?`,
+      String(reqDays)
+    );
+    const appDays = Math.max(
+      0,
+      appDaysStr !== null ? Number(appDaysStr) || reqDays : reqDays
+    );
+    const reason =
+      window.prompt('סיבת בקשת הארכה (אופציונלי):', 'השלמת מסמכים ונתונים') ||
+      '';
+
+    const today = new Date().toISOString().split('T')[0];
+    const nextDue =
+      addDaysToDateStr(sub.due_date || sub.original_due_date, appDays) ||
+      sub.due_date;
+    const extRec = {
+      id: generateId(),
+      requested_at: today,
+      days_requested: reqDays,
+      days_approved: appDays,
+      reason: reason.trim(),
+    };
+
+    setCompanySubmissions((prev) =>
+      prev.map((s) => {
+        if (s.id !== sub.id) return s;
+        const nextReqs = [...(s.extension_requests || []), extRec];
+        const nextExtCount = (Number(s.extensions_count) || 0) + 1;
+        const nextTotalDays =
+          (Number(s.total_extension_days) || 0) + appDays;
+        return {
+          ...s,
+          due_date: nextDue,
+          extensions_count: nextExtCount,
+          total_extension_days: nextTotalDays,
+          extension_requests: nextReqs,
+          updated_by: currentUser.displayName,
+        };
+      })
+    );
+
+    setExtensionsCount((prev) => (Number(prev) || 0) + 1);
+    setTotalExtensionDays((prev) => (Number(prev) || 0) + appDays);
+
+    const log = await addCaseLog({
+      case_id: caseItem.id,
+      log_type: 'בקשת ארכה / דחיית דיון',
+      content: `בקשת ארכה מס׳ ${(Number(sub.extensions_count) || 0) + 1} עבור [${
+        sub.document_type
+      }] "${sub.title}": התבקשו ${reqDays} ימים, ניתנו ${appDays} ימי ארכה ➔ יעד חדש: ${formatDateHe(
+        nextDue
+      )}${reason ? ` (${reason})` : ''}`,
+      due_date: nextDue,
+      created_by: currentUser.displayName,
+    });
+    setLogs((prev) => [log, ...prev]);
+  };
+
+  const handleToggleSubmissionDone = async (sub: CompanySubmissionItem) => {
+    const today = new Date().toISOString().split('T')[0];
+    const nextDone = !sub.is_submitted;
+    let actualDate: string | null = null;
+    if (nextDone) {
+      const inputDate = window.prompt(
+        `תאריך הגשה בפועל עבור "${sub.title}" (YYYY-MM-DD):`,
+        today
+      );
+      actualDate = inputDate?.trim() || today;
+    }
+
+    setCompanySubmissions((prev) =>
+      prev.map((s) =>
+        s.id === sub.id
+          ? {
+              ...s,
+              is_submitted: nextDone,
+              submitted_at: actualDate,
+              updated_by: currentUser.displayName,
+            }
+          : s
+      )
+    );
+
+    if (nextDone && actualDate) {
+      const log = await addCaseLog({
+        case_id: caseItem.id,
+        log_type: 'פעולה שבוצעה',
+        content: `הוגש [${sub.document_type}] "${
+          sub.title
+        }" בתאריך ${formatDateHe(actualDate)} (יעד: ${formatDateHe(
+          sub.due_date
+        )} | אחראי: ${sub.assignee})`,
+        created_by: currentUser.displayName,
+      });
+      setLogs((prev) => [log, ...prev]);
+    }
+  };
+
+  const handleIncrementSubmissionWarningDecision = async (
+    sub: CompanySubmissionItem
+  ) => {
+    const nextWarn = (Number(sub.late_warning_decisions_count) || 0) + 1;
+    setCompanySubmissions((prev) =>
+      prev.map((s) =>
+        s.id === sub.id
+          ? {
+              ...s,
+              late_warning_decisions_count: nextWarn,
+              updated_by: currentUser.displayName,
+            }
+          : s
+      )
+    );
+    setLateWarningDecisionsCount((prev) => (Number(prev) || 0) + 1);
+
+    const log = await addCaseLog({
+      case_id: caseItem.id,
+      log_type: 'החלטת ביהמ"ש',
+      content: `התקבלה החלטת התראה שיפוטית מס׳ ${nextWarn} על אי-הגשה במועד בגין [${sub.document_type}] "${sub.title}" (אחראי: ${sub.assignee})`,
+      created_by: currentUser.displayName,
+    });
+    setLogs((prev) => [log, ...prev]);
+  };
+
+  const handleDeleteCompanySubmission = (subId: string) => {
+    setCompanySubmissions((prev) => prev.filter((s) => s.id !== subId));
+  };
+
+  const getUiLabel = (key: string, defaultText: string) =>
+    customUiLabels[key] || defaultText;
+
+  const handleRenameUiLabel = (key: string, defaultText: string) => {
+    const current = getUiLabel(key, defaultText);
+    const next = window.prompt(`עריכת כותרת / שם שדה:`, current);
+    if (next === null) return;
+    const updated = saveCustomUiLabel(key, next);
+    setCustomUiLabels(updated);
   };
 
   const handleDeleteMilestone = (msId: string) => {
@@ -1149,17 +1785,57 @@ export default function CaseDrawer({
         setPostponedReason(nextReason);
       }
 
+      const prefixParts: string[] = [];
+      if (logIsManagerInst) prefixParts.push('⚡ [הוראת מנהל / רון]');
+      if (logActionTag) prefixParts.push(`[${logActionTag}]`);
+      if (logExecState) prefixParts.push(`[סטטוס: ${logExecState}]`);
+      if (logContactRef) prefixParts.push(`[איש קשר: ${logContactRef}]`);
+      const decoratedContent =
+        prefixParts.length > 0
+          ? `${prefixParts.join(' ')} ${logContent.trim()}`
+          : logContent.trim();
+
       const createdLog = await addCaseLog({
         case_id: caseItem.id,
         log_type: logType,
-        content: logContent.trim(),
+        content: decoratedContent,
         due_date:
           updateNextInOneClick && quickNextDueDate ? quickNextDueDate : null,
+        is_manager_instruction: logIsManagerInst,
+        execution_state: logExecState,
+        action_tag: logActionTag,
+        contact_ref: logContactRef || undefined,
+        assignee: assignedTo || undefined,
         created_by: currentUser.displayName,
       });
 
       setLogs((prev) => [createdLog, ...prev]);
       setLogContent('');
+      setLogIsManagerInst(false);
+      setLogContactRef('');
+
+      if (logFollowUpTaskTitle.trim()) {
+        const today = new Date().toISOString().split('T')[0];
+        const chainedMs: CaseMilestone = {
+          id: generateId(),
+          title: logFollowUpTaskTitle.trim(),
+          status: 'in_progress',
+          execution_state: logExecState === 'בוצע' ? 'בטיפול' : logExecState,
+          is_manager_instruction: logIsManagerInst,
+          action_tag: logActionTag,
+          contact_ref: logContactRef || undefined,
+          assignee: assignedTo || '',
+          urgency: logIsManagerInst ? 'דחוף מאוד' : 'גבוהה',
+          planned_days: 7,
+          due_date: quickNextDueDate || null,
+          started_at: today,
+          completed_at: null,
+          days_spent: 0,
+          updated_by: currentUser.displayName,
+        };
+        setMilestones((prev) => [chainedMs, ...prev]);
+        setLogFollowUpTaskTitle('');
+      }
 
       if (updateNextInOneClick) {
         const updatedActionDesc =
@@ -1379,6 +2055,7 @@ export default function CaseDrawer({
                 <option value="overview">🏛️ שדות התחום</option>
                 <option value="tasks">✅ משימות בלבד</option>
                 <option value="logs">💬 יומן בלבד</option>
+                <option value="conduct">📊 דוח בקרת התנהלות ואיחורים</option>
                 <option value="full">📑 דוח תיק מלא</option>
               </select>
 
@@ -1405,10 +2082,15 @@ export default function CaseDrawer({
                     next_action_type: nextActionType,
                     next_action_description: nextActionDescription,
                     next_due_date: nextDueDate || null,
+                    assigned_to: assignedTo,
                     extensions_count: extensionsCount,
+                    total_extension_days: totalExtensionDays,
+                    late_warning_decisions_count: lateWarningDecisionsCount,
                     is_hearing_postponed: isHearingPostponed,
                     postponed_reason: postponedReason,
                     trustee_report_due_date: trusteeReportDueDate || null,
+                    company_hearings: companyHearings,
+                    company_submissions: companySubmissions,
                     debt_years: debtYears,
                     principal_amount: principalAmount,
                     interest_amount: interestAmount,
@@ -1508,10 +2190,15 @@ export default function CaseDrawer({
                     next_action_type: nextActionType,
                     next_action_description: nextActionDescription,
                     next_due_date: nextDueDate || null,
+                    assigned_to: assignedTo,
                     extensions_count: extensionsCount,
+                    total_extension_days: totalExtensionDays,
+                    late_warning_decisions_count: lateWarningDecisionsCount,
                     is_hearing_postponed: isHearingPostponed,
                     postponed_reason: postponedReason,
                     trustee_report_due_date: trusteeReportDueDate || null,
+                    company_hearings: companyHearings,
+                    company_submissions: companySubmissions,
                     debt_years: debtYears,
                     principal_amount: principalAmount,
                     interest_amount: interestAmount,
@@ -1658,6 +2345,80 @@ export default function CaseDrawer({
           </div>
         </div>
 
+        {/* סרגל התקדמות וציר זמן חזותי מודרני (Visual Case Timeline — v8.6) בראש כל תיק */}
+        <div className="bg-slate-900/95 border-b border-slate-800 px-3 sm:px-6 py-2 text-white shrink-0 no-print">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
+            <div className="flex items-center gap-2 text-xs font-extrabold">
+              <span className="text-sky-300">
+                ציר זמן ומסלול חיי התיק ({progressPercent}% הושלם):
+              </span>
+              <span className="text-slate-300">
+                {doneCount} הושלמו ✓ • {inProgressCount} בטיפול • {upcomingCount} בהמשך
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {category === 'חברות' && (
+                <button
+                  type="button"
+                  onClick={handleLoadCompanyLifecycleTemplate}
+                  className="px-2.5 py-0.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-extrabold transition"
+                  title="טען תבנית אבני דרך אוטומטית מרגע המינוי (כתב ערובה 14 יום, בדיקות גופים, חקירה, מסמכים וצומת הכרעה)"
+                >
+                  ⚡ טען מסלול חיים מובנה (חברות)
+                </button>
+              )}
+              {onOpenOfficeDirectory && (
+                <button
+                  type="button"
+                  onClick={onOpenOfficeDirectory}
+                  className="px-2.5 py-0.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-extrabold flex items-center gap-1 transition"
+                >
+                  <BookUser className="w-3 h-3" />
+                  <span>אלפון משרדי</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* פס התקדמות לינארי + אבני דרך לחיצות בציר הזמן */}
+          <div className="w-full h-1.5 bg-slate-700 rounded-full overflow-hidden mb-2">
+            <div
+              className="h-full bg-gradient-to-l from-emerald-400 via-sky-400 to-blue-500 rounded-full transition-all duration-300"
+              style={{ width: `${Math.max(progressPercent, 4)}%` }}
+            />
+          </div>
+
+          {milestones.length > 0 && (
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+              {milestones.slice(0, 8).map((m, idx) => {
+                const isCurrent = currentStage === m.title;
+                const isDone = m.status === 'done';
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => handleStageTransition(m.title)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-extrabold border flex items-center gap-1 shrink-0 transition ${
+                      isCurrent
+                        ? 'bg-sky-500 text-slate-950 border-sky-300 ring-2 ring-sky-400/50'
+                        : isDone
+                        ? 'bg-emerald-900/70 text-emerald-200 border-emerald-600/60'
+                        : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                    }`}
+                    title="לחץ למעבר לשלב זה בציר הזמן"
+                  >
+                    <span>
+                      {isDone ? '✓' : isCurrent ? '●' : `${idx + 1}.`}
+                    </span>
+                    <span className="max-w-[170px] truncate">{m.title}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         {/* סרגל הלשוניות הפנימיות (Zero-Scroll Tabs) */}
         <div className="bg-slate-100 border-b border-slate-200 px-3 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-2 shrink-0 no-print">
           <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap w-full sm:w-auto">
@@ -1711,6 +2472,39 @@ export default function CaseDrawer({
             >
               <MessageSquare className="w-4 h-4 text-amber-400 shrink-0" />
               <span>ארכיון תרשומות ({logs.length})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('conduct')}
+              className={`px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-1.5 transition ${
+                activeTab === 'conduct'
+                  ? 'bg-rose-700 text-white shadow-sm'
+                  : 'bg-rose-50 text-rose-900 hover:bg-rose-100 border border-rose-200'
+              }`}
+            >
+              <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0" />
+              <span>
+                {getUiLabel(
+                  'tab_conduct_report',
+                  'דוח בקרת התנהלות ואיחורים'
+                )}
+              </span>
+              {systemEditMode && (
+                <span
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleRenameUiLabel(
+                      'tab_conduct_report',
+                      'דוח בקרת התנהלות ואיחורים'
+                    );
+                  }}
+                  title="ערוך שם כרטיסייה (✏️)"
+                  className="mr-1 text-[11px] hover:scale-110"
+                >
+                  ✏️
+                </span>
+              )}
             </button>
 
             {onOpenAddCustomField && (
@@ -2097,6 +2891,114 @@ export default function CaseDrawer({
                       />
                     </div>
 
+                    {/* ניהול אחראים לביצוע (Assignees) ושיוך אחראי בתיק */}
+                    <div className="pt-1 border-t border-slate-200/80 space-y-1.5">
+                      <div className="flex items-center justify-between gap-1.5">
+                        <label className="text-[11px] font-extrabold text-indigo-950">
+                          אחראי לביצוע (Assignee):
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setShowAssigneesManager((v) => !v)}
+                          className="text-[11px] font-extrabold text-indigo-700 hover:underline"
+                        >
+                          {showAssigneesManager
+                            ? 'סגור ניהול צוות ▲'
+                            : '✏️ ניהול אנשי צוות (+)'}
+                        </button>
+                      </div>
+
+                      <select
+                        value={assignedTo}
+                        onChange={(e) => setAssignedTo(e.target.value)}
+                        className="w-full p-1.5 text-xs rounded-lg border border-indigo-300 bg-white font-extrabold text-indigo-950 outline-none"
+                      >
+                        <option value="">-- בחר אחראי לביצוע --</option>
+                        {assignedTo && !assigneesList.includes(assignedTo) && (
+                          <option value={assignedTo}>{assignedTo}</option>
+                        )}
+                        {assigneesList.map((person) => (
+                          <option key={person} value={person}>
+                            👤 {person}
+                          </option>
+                        ))}
+                      </select>
+
+                      {showAssigneesManager && (
+                        <div className="p-2 rounded-xl bg-indigo-50/70 border border-indigo-200 space-y-1.5 text-xs">
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="text"
+                              value={newAssigneeInput}
+                              onChange={(e) =>
+                                setNewAssigneeInput(e.target.value)
+                              }
+                              placeholder="הוסף איש צוות (למשל: אליאב / רון / מתמחה)..."
+                              className="flex-1 p-1.5 rounded border border-indigo-300 bg-white text-xs font-bold"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (!newAssigneeInput.trim()) return;
+                                const next = addAssigneeName(
+                                  newAssigneeInput.trim()
+                                );
+                                setAssigneesList(next);
+                                setAssignedTo(newAssigneeInput.trim());
+                                setNewAssigneeInput('');
+                              }}
+                              className="px-2.5 py-1.5 rounded bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold"
+                            >
+                              + הוסף
+                            </button>
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {assigneesList.map((person) => (
+                              <span
+                                key={person}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white border border-indigo-200 text-indigo-950 font-bold text-[11px]"
+                              >
+                                <span>{person}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const nextName = window.prompt(
+                                      `ערוך שם איש צוות "${person}":`,
+                                      person
+                                    );
+                                    if (!nextName || !nextName.trim()) return;
+                                    const next = renameAssigneeName(
+                                      person,
+                                      nextName.trim()
+                                    );
+                                    setAssigneesList(next);
+                                    if (assignedTo === person) {
+                                      setAssignedTo(nextName.trim());
+                                    }
+                                  }}
+                                  title="ערוך שם איש צוות"
+                                  className="text-slate-400 hover:text-blue-600"
+                                >
+                                  ✏️
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const next = deleteAssigneeName(person);
+                                    setAssigneesList(next);
+                                  }}
+                                  title="מחק איש צוות"
+                                  className="text-slate-400 hover:text-red-600"
+                                >
+                                  🗑️
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
                     <div className="flex items-center justify-between pt-1">
                       <label className="inline-flex items-center gap-1.5 text-xs font-extrabold text-rose-800 cursor-pointer">
                         <input
@@ -2201,7 +3103,7 @@ export default function CaseDrawer({
                         + הוסף
                       </button>
                     </div>
-                    <div className="grid grid-cols-2 gap-1.5">
+                    <div className="grid grid-cols-3 gap-1.5">
                       <input
                         type="date"
                         value={newTaskDueDate}
@@ -2222,7 +3124,125 @@ export default function CaseDrawer({
                           </option>
                         ))}
                       </select>
+                      <select
+                        value={newMilestoneAssignee}
+                        onChange={(e) =>
+                          setNewMilestoneAssignee(e.target.value)
+                        }
+                        className="p-1.5 text-[11px] rounded-lg border border-indigo-300 bg-white font-extrabold text-indigo-950"
+                        title="שיוך אחראי למשימה"
+                      >
+                        <option value="">אחראי: {assignedTo || 'בחר...'}</option>
+                        {assigneesList.map((person) => (
+                          <option key={person} value={person}>
+                            👤 {person}
+                          </option>
+                        ))}
+                      </select>
                     </div>
+
+                    {/* הוראת מנהל/רון + סטטוס תלות וביצוע + תגיות פעולה גמישות + שרשור משימת המשך */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 pt-1 border-t border-slate-200/70">
+                      <label className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-amber-100/80 border border-amber-300 text-amber-950 text-[11px] font-extrabold cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={newMilestoneIsManagerInst}
+                          onChange={(e) =>
+                            setNewMilestoneIsManagerInst(e.target.checked)
+                          }
+                          className="accent-amber-600 rounded"
+                        />
+                        <span>⚡ הוראת מנהל / רון</span>
+                      </label>
+
+                      <select
+                        value={newMilestoneExecState}
+                        onChange={(e) =>
+                          setNewMilestoneExecState(
+                            e.target.value as TaskExecutionState
+                          )
+                        }
+                        className="p-1 text-[11px] rounded-lg border border-slate-300 bg-white font-extrabold text-slate-800"
+                        title="הפרדה בין בטיפול / בוצע / הועבר לאחר / תלוי באחר"
+                      >
+                        {TASK_EXECUTION_STATES.map((st) => (
+                          <option key={st} value={st}>
+                            מצב: {st}
+                          </option>
+                        ))}
+                      </select>
+
+                      <div className="flex items-center gap-1">
+                        <select
+                          value={newMilestoneActionTag}
+                          onChange={(e) =>
+                            setNewMilestoneActionTag(e.target.value)
+                          }
+                          className="flex-1 p-1 text-[11px] rounded-lg border border-slate-300 bg-white font-bold"
+                          title="תגית סוג פעולה"
+                        >
+                          {actionTagsList.map((tag) => (
+                            <option key={tag} value={tag}>
+                              🏷️ {tag}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const custom = window.prompt(
+                              'הוסף סוג פעולה חדש (למשל: התקשרות / מייל / בירור / נסח טאבו / מכתב):'
+                            );
+                            if (!custom || !custom.trim()) return;
+                            const next = addCustomActionTag(custom.trim());
+                            setActionTagsList(next);
+                            setNewMilestoneActionTag(custom.trim());
+                          }}
+                          className="px-1.5 py-1 rounded bg-slate-200 hover:bg-slate-300 text-slate-800 text-[10px] font-extrabold shrink-0"
+                          title="+ הוסף סוג פעולה"
+                        >
+                          + סוג
+                        </button>
+                      </div>
+                    </div>
+
+                    <input
+                      type="text"
+                      value={newMilestoneFollowUpTitle}
+                      onChange={(e) =>
+                        setNewMilestoneFollowUpTitle(e.target.value)
+                      }
+                      placeholder="🔗 שרשור משימת המשך (תיפתח אוטומטית עם השלמת משימה זו)..."
+                      className="w-full p-1.5 text-[11px] rounded-lg border border-indigo-200 bg-indigo-50/40 font-bold text-indigo-950 outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  {/* סינון משימות לפי הוראות מנהל/רון והפרדה בין בטיפול / הועבר לאחר / תלוי באחר */}
+                  <div className="flex flex-wrap items-center gap-1 shrink-0">
+                    {[
+                      { id: 'all', label: 'הכל' },
+                      { id: 'manager', label: '⚡ הוראות מנהל/רון' },
+                      { id: 'בטיפול', label: 'בטיפול' },
+                      { id: 'הועבר לאחר', label: 'הועבר לאחר' },
+                      { id: 'תלוי באחר', label: 'תלוי באחר' },
+                    ].map((f) => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() =>
+                          setTasksExecutionFilter(
+                            f.id as typeof tasksExecutionFilter
+                          )
+                        }
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border transition ${
+                          tasksExecutionFilter === f.id
+                            ? 'bg-[#0F172A] text-white border-slate-900'
+                            : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
+                        }`}
+                      >
+                        {f.label}
+                      </button>
+                    ))}
                   </div>
 
                   {/* רשימה עליונה: משימות פתוחות לביצוע (עם כפתור ✓ ואייקון עיפרון ✏️ לעריכה) */}
@@ -2236,60 +3256,120 @@ export default function CaseDrawer({
                         כל המשימות בתיק הושלמו! ✓
                       </div>
                     ) : (
-                      openMilestones.map((m) => {
-                        const isEditing = editingTaskId === m.id;
-                        return (
-                          <div
-                            key={m.id}
-                            className="p-2.5 rounded-xl border border-slate-200 bg-white hover:border-blue-300 transition space-y-2 shadow-2xs"
-                          >
-                            <div className="flex items-start justify-between gap-2">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleMilestoneStatusChange(m.id, 'done')
-                                }
-                                title="סמן כבוצע בקליק אחד ✓"
-                                className="w-5 h-5 mt-0.5 rounded-md border-2 border-emerald-600 text-emerald-700 hover:bg-emerald-600 hover:text-white flex items-center justify-center shrink-0 transition"
-                              >
-                                <Check className="w-3.5 h-3.5" />
-                              </button>
+                      openMilestones
+                        .filter((m) => {
+                          if (tasksExecutionFilter === 'all') return true;
+                          if (tasksExecutionFilter === 'manager')
+                            return Boolean(m.is_manager_instruction);
+                          return (
+                            (m.execution_state || 'בטיפול') ===
+                            tasksExecutionFilter
+                          );
+                        })
+                        .map((m) => {
+                          const isEditing = editingTaskId === m.id;
+                          return (
+                            <div
+                              key={m.id}
+                              className={`p-2.5 rounded-xl border transition space-y-2 shadow-2xs ${
+                                m.is_manager_instruction
+                                  ? 'border-2 border-amber-400 bg-amber-50/40'
+                                  : 'border-slate-200 bg-white hover:border-blue-300'
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleMilestoneStatusChange(m.id, 'done')
+                                  }
+                                  title="סמן כבוצע בקליק אחד ✓ (יפתח אוטומטית משימת המשך משורשרת אם הוגדרה)"
+                                  className="w-5 h-5 mt-0.5 rounded-md border-2 border-emerald-600 text-emerald-700 hover:bg-emerald-600 hover:text-white flex items-center justify-center shrink-0 transition"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                </button>
 
-                              <div className="flex-1 min-w-0">
-                                {isEditing ? (
-                                  <input
-                                    type="text"
-                                    autoFocus
-                                    value={m.title}
-                                    onChange={(e) =>
-                                      handleMilestoneTitleChange(
-                                        m.id,
-                                        e.target.value
-                                      )
-                                    }
-                                    className="w-full p-1.5 text-xs rounded-lg border border-blue-500 bg-blue-50/20 font-extrabold text-slate-900 outline-none"
-                                  />
-                                ) : (
-                                  <div className="text-xs font-extrabold text-slate-900 leading-snug">
-                                    {m.title}
-                                  </div>
-                                )}
+                                <div className="flex-1 min-w-0">
+                                  {isEditing ? (
+                                    <input
+                                      type="text"
+                                      autoFocus
+                                      value={m.title}
+                                      onChange={(e) =>
+                                        handleMilestoneTitleChange(
+                                          m.id,
+                                          e.target.value
+                                        )
+                                      }
+                                      className="w-full p-1.5 text-xs rounded-lg border border-blue-500 bg-blue-50/20 font-extrabold text-slate-900 outline-none"
+                                    />
+                                  ) : (
+                                    <div className="text-xs font-extrabold text-slate-900 leading-snug">
+                                      {m.is_manager_instruction && (
+                                        <span className="inline-block ml-1 px-1.5 py-0.2 rounded bg-amber-500 text-slate-950 text-[10px] font-extrabold">
+                                          ⚡ הוראת מנהל/רון
+                                        </span>
+                                      )}
+                                      {m.title}
+                                    </div>
+                                  )}
 
-                                <div className="flex items-center gap-1.5 flex-wrap mt-1">
-                                  <span
-                                    className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${getUrgencyBadge(
-                                      m.urgency
-                                    )}`}
-                                  >
-                                    {m.urgency || 'רגילה'}
-                                  </span>
-                                  {m.due_date && (
-                                    <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-[10px] font-bold">
-                                      יעד: {formatDateHe(m.due_date)}
+                                  <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                                    <span
+                                      className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${getUrgencyBadge(
+                                        m.urgency
+                                      )}`}
+                                    >
+                                      {m.urgency || 'רגילה'}
                                     </span>
+
+                                    <select
+                                      value={m.execution_state || 'בטיפול'}
+                                      onChange={(e) =>
+                                        handleMilestoneExecutionStateChange(
+                                          m.id,
+                                          e.target.value as TaskExecutionState
+                                        )
+                                      }
+                                      className={`px-1.5 py-0.5 rounded text-[10px] font-extrabold border cursor-pointer ${
+                                        m.execution_state === 'הועבר לאחר'
+                                          ? 'bg-purple-100 text-purple-900 border-purple-300'
+                                          : m.execution_state === 'תלוי באחר'
+                                          ? 'bg-amber-100 text-amber-950 border-amber-300'
+                                          : 'bg-blue-50 text-blue-900 border-blue-200'
+                                      }`}
+                                    >
+                                      {TASK_EXECUTION_STATES.map((st) => (
+                                        <option key={st} value={st}>
+                                          {st}
+                                        </option>
+                                      ))}
+                                    </select>
+
+                                    {m.action_tag && (
+                                      <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-800 border border-slate-300 text-[10px] font-extrabold">
+                                        🏷️ {m.action_tag}
+                                      </span>
+                                    )}
+
+                                    {m.due_date && (
+                                      <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-[10px] font-bold">
+                                        יעד: {formatDateHe(m.due_date)}
+                                      </span>
+                                    )}
+                                    {m.assignee && (
+                                      <span className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-900 border border-indigo-200 text-[10px] font-extrabold">
+                                        👤 {m.assignee}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {m.follow_up_title && (
+                                    <div className="mt-1 text-[10px] font-extrabold text-indigo-800 bg-indigo-50/80 px-2 py-0.5 rounded border border-indigo-200">
+                                      🔗 משימת המשך משורשרת: {m.follow_up_title}
+                                    </div>
                                   )}
                                 </div>
-                              </div>
 
                               <div className="flex items-center gap-1 shrink-0">
                                 <button
@@ -2318,7 +3398,7 @@ export default function CaseDrawer({
                             </div>
 
                             {isEditing && (
-                              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 bg-slate-50 p-2 rounded-lg">
+                              <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100 bg-slate-50 p-2 rounded-lg">
                                 <div>
                                   <label className="block text-[10px] font-bold text-slate-600 mb-0.5">
                                     תאריך יעד
@@ -2352,6 +3432,28 @@ export default function CaseDrawer({
                                     {TASK_URGENCIES.map((u) => (
                                       <option key={u} value={u}>
                                         {u}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="block text-[10px] font-bold text-indigo-900 mb-0.5">
+                                    אחראי לביצוע
+                                  </label>
+                                  <select
+                                    value={m.assignee || ''}
+                                    onChange={(e) =>
+                                      handleMilestoneAssigneeChange(
+                                        m.id,
+                                        e.target.value
+                                      )
+                                    }
+                                    className="w-full p-1 text-xs rounded border border-indigo-300 bg-white font-extrabold text-indigo-950"
+                                  >
+                                    <option value="">-- ללא שיוך --</option>
+                                    {assigneesList.map((person) => (
+                                      <option key={person} value={person}>
+                                        {person}
                                       </option>
                                     ))}
                                   </select>
@@ -2451,12 +3553,12 @@ export default function CaseDrawer({
                     </button>
                   </div>
 
-                  {/* הוספת הערה / עדכון מהיר ליומן הכרונולוגי */}
+                  {/* הוספת הערה / הוראת מנהל/רון / שליפת איש קשר מהאלפון / משימת המשך משורשרת */}
                   <form
                     onSubmit={handleQuickLogSubmit}
                     className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2 shrink-0"
                   >
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <select
                         value={logType}
                         onChange={(e) => setLogType(e.target.value as LogType)}
@@ -2468,6 +3570,19 @@ export default function CaseDrawer({
                           </option>
                         ))}
                       </select>
+
+                      <label className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-100 border border-amber-300 text-amber-950 text-[11px] font-extrabold cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={logIsManagerInst}
+                          onChange={(e) =>
+                            setLogIsManagerInst(e.target.checked)
+                          }
+                          className="accent-amber-600 rounded"
+                        />
+                        <span>⚡ הוראת מנהל/רון</span>
+                      </label>
+
                       <button
                         type="submit"
                         disabled={submittingLog || !logContent.trim()}
@@ -2476,12 +3591,88 @@ export default function CaseDrawer({
                         + רשום ביומן
                       </button>
                     </div>
+
+                    {/* תגיות פעולה גמישות + סטטוס ביצוע/תלות + שליפת איש קשר מהאלפון */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                      <div className="flex items-center gap-1">
+                        <select
+                          value={logActionTag}
+                          onChange={(e) => setLogActionTag(e.target.value)}
+                          className="flex-1 p-1 text-[11px] rounded-lg border border-slate-300 bg-white font-bold"
+                          title="תגית פעולה"
+                        >
+                          {actionTagsList.map((tag) => (
+                            <option key={tag} value={tag}>
+                              🏷️ {tag}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const custom = window.prompt(
+                              'הוסף סוג פעולה חדש (למשל: התקשרות / מייל / בירור / נסח טאבו / מכתב):'
+                            );
+                            if (!custom || !custom.trim()) return;
+                            const next = addCustomActionTag(custom.trim());
+                            setActionTagsList(next);
+                            setLogActionTag(custom.trim());
+                          }}
+                          className="px-1.5 py-1 rounded bg-slate-200 hover:bg-slate-300 text-slate-800 text-[10px] font-extrabold shrink-0"
+                          title="+ הוסף סוג פעולה"
+                        >
+                          +
+                        </button>
+                      </div>
+
+                      <select
+                        value={logExecState}
+                        onChange={(e) =>
+                          setLogExecState(e.target.value as TaskExecutionState)
+                        }
+                        className="p-1 text-[11px] rounded-lg border border-slate-300 bg-white font-extrabold"
+                      >
+                        {TASK_EXECUTION_STATES.map((st) => (
+                          <option key={st} value={st}>
+                            מצב: {st}
+                          </option>
+                        ))}
+                      </select>
+
+                      <select
+                        value={logContactRef}
+                        onChange={(e) => setLogContactRef(e.target.value)}
+                        className="p-1 text-[11px] rounded-lg border border-indigo-300 bg-white font-bold text-indigo-950"
+                        title="שליפת איש קשר מתוך האלפון המשרדי"
+                      >
+                        <option value="">📖 שלוף מאלפון...</option>
+                        {officeContactsList.map((c) => (
+                          <option
+                            key={c.id}
+                            value={`${c.name}${
+                              c.organization ? ` (${c.organization})` : ''
+                            }`}
+                          >
+                            {c.name} {c.organization ? `• ${c.organization}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
                     <textarea
                       rows={2}
                       value={logContent}
                       onChange={(e) => setLogContent(e.target.value)}
-                      placeholder="הקלד הערה, עדכון מייל/נט המשפט, דחיית דיון או החלטה..."
+                      placeholder="הקלד הערה, הוראת מנהל/רון, תרשומת שיחה או החלטה..."
                       className="w-full p-2 text-xs rounded-lg border border-slate-300 bg-white outline-none focus:border-blue-600"
+                    />
+
+                    <input
+                      type="text"
+                      value={logFollowUpTaskTitle}
+                      onChange={(e) => setLogFollowUpTaskTitle(e.target.value)}
+                      placeholder="🔗 שרשר משימת המשך אוטומטית מתוך תיעוד זה (אופציונלי)..."
+                      className="w-full p-1.5 text-[11px] rounded-lg border border-indigo-200 bg-indigo-50/40 font-bold text-indigo-950 outline-none"
                     />
                   </form>
 
@@ -3589,7 +4780,7 @@ export default function CaseDrawer({
                           : 'טרם הופקדה!'}
                       </button>
 
-                      {/* הכרעה: שיקום או פירוק */}
+                      {/* צומת הכרעה: המלצה לחיסול מול המשך לפירוק / שיקום */}
                       <select
                         value={companyResolutionDecision}
                         onChange={(e) =>
@@ -3601,10 +4792,198 @@ export default function CaseDrawer({
                       >
                         {COMPANY_RESOLUTION_DECISIONS.map((d) => (
                           <option key={d} value={d}>
-                            הכרעה: {d}
+                            צומת הכרעה: {d}
                           </option>
                         ))}
                       </select>
+                    </div>
+                  </div>
+
+                  {/* מסלול חיים מובנה מרגע המינוי: מועד מינוי -> כתב ערובה 14 יום -> בדיקות גופים -> מסמכים -> צומת הכרעה */}
+                  <div className="bg-white p-4 rounded-2xl border-2 border-emerald-300 space-y-3.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-100 pb-2.5">
+                      <div>
+                        <h4 className="text-sm sm:text-base font-extrabold text-emerald-950">
+                          מסלול חיים מובנה מרגע המינוי (תבנית אבני דרך אוטומטית)
+                        </h4>
+                        <p className="text-xs text-slate-600">
+                          הגשת כתב ערובה (יעד אוטומטי 14 יום מהמינוי) ➔ בדיקות מול גופים ➔ חקירה ומסמכים ➔ צומת הכרעה
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleLoadCompanyLifecycleTemplate}
+                        className="px-3 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-extrabold shadow-2xs transition no-print"
+                      >
+                        ⚡ טען תבנית אבני דרך מרגע המינוי
+                      </button>
+                    </div>
+
+                    {/* שורה 1: מועד המינוי מהמזכירות + יעד אוטומטי 14 יום לכתב ערובה + סטטוס מסמכים + צומת הכרעה */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                      <div>
+                        <label className="block text-xs font-extrabold text-emerald-950 mb-1">
+                          מועד קבלת המינוי מהמזכירות
+                        </label>
+                        <input
+                          type="date"
+                          value={appointmentDate}
+                          onChange={(e) =>
+                            handleAppointmentDateChange(e.target.value)
+                          }
+                          className="w-full p-2 text-xs rounded-lg border border-emerald-400 bg-emerald-50/30 font-extrabold"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-extrabold text-rose-900 mb-1">
+                          יעד כתב ערובה (14 יום אוטומטית מהמינוי)
+                        </label>
+                        <input
+                          type="date"
+                          value={guaranteeBondDueDate}
+                          onChange={(e) =>
+                            setGuaranteeBondDueDate(e.target.value)
+                          }
+                          className="w-full p-2 text-xs rounded-lg border-2 border-rose-300 bg-rose-50/40 font-extrabold text-rose-950"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-extrabold text-indigo-950 mb-1">
+                          סטטוס מסמכים וכתיבת טיוטת דוח
+                        </label>
+                        <select
+                          value={companyDocumentsStage}
+                          onChange={(e) =>
+                            setCompanyDocumentsStage(
+                              e.target.value as CompanyDocumentsStage
+                            )
+                          }
+                          className="w-full p-2 text-xs rounded-lg border-2 border-indigo-300 bg-indigo-50/40 font-extrabold text-indigo-950"
+                        >
+                          {COMPANY_DOCUMENTS_STAGES.map((st) => (
+                            <option key={st} value={st}>
+                              {st}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-extrabold text-slate-800 mb-1">
+                          צומת הכרעה מהירה:
+                        </label>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCompanyResolutionDecision('המלצה לחיסול')
+                            }
+                            className={`py-2 px-2 rounded-lg text-[11px] font-extrabold border transition ${
+                              companyResolutionDecision === 'המלצה לחיסול'
+                                ? 'bg-amber-600 text-white border-amber-700 shadow-2xs'
+                                : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-amber-50'
+                            }`}
+                          >
+                            המלצה לחיסול
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setCompanyResolutionDecision(
+                                'המשך לפירוק / שיקום'
+                              )
+                            }
+                            className={`py-2 px-2 rounded-lg text-[11px] font-extrabold border transition ${
+                              companyResolutionDecision ===
+                              'המשך לפירוק / שיקום'
+                                ? 'bg-emerald-700 text-white border-emerald-800 shadow-2xs'
+                                : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-emerald-50'
+                            }`}
+                          >
+                            המשך לפירוק/שיקום
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* שורה 2: 4 בדיקות מול גופים (נסח חברה, גופים פיננסיים, רשות המיסים, ביטוח ופנסיה) */}
+                    <div>
+                      <div className="text-xs font-extrabold text-slate-800 mb-2">
+                        בדיקות מול גופים (רשם החברות, בנקים, מיסים, ביטוח ופנסיה):
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                        {[
+                          {
+                            label: '1. נסח חברה (רשם החברות)',
+                            statusKey: 'company_extract_status' as const,
+                            notesKey: 'company_extract_notes' as const,
+                          },
+                          {
+                            label: '2. גופים פיננסיים (בנקים)',
+                            statusKey: 'financial_entities_status' as const,
+                            notesKey: 'financial_entities_notes' as const,
+                          },
+                          {
+                            label: '3. רשות המיסים (מע״מ/מ״ה)',
+                            statusKey: 'tax_authority_status' as const,
+                            notesKey: 'tax_authority_notes' as const,
+                          },
+                          {
+                            label: '4. ביטוח ופנסיה (הר הביטוח)',
+                            statusKey: 'insurance_pension_status' as const,
+                            notesKey: 'insurance_pension_notes' as const,
+                          },
+                        ].map((chk) => {
+                          const stVal = companyEntityChecks[chk.statusKey];
+                          return (
+                            <div
+                              key={chk.statusKey}
+                              className={`p-2.5 rounded-xl border space-y-1.5 ${
+                                stVal === 'התקבל מענה ✓'
+                                  ? 'bg-emerald-50/70 border-emerald-300'
+                                  : stVal === 'נשלח — ממתין למענה'
+                                  ? 'bg-amber-50/60 border-amber-300'
+                                  : 'bg-slate-50 border-slate-200'
+                              }`}
+                            >
+                              <div className="text-[11px] font-extrabold text-slate-900">
+                                {chk.label}
+                              </div>
+                              <select
+                                value={stVal}
+                                onChange={(e) =>
+                                  setCompanyEntityChecks((prev) => ({
+                                    ...prev,
+                                    [chk.statusKey]: e.target
+                                      .value as CompanyEntityCheckStatus,
+                                  }))
+                                }
+                                className="w-full p-1 text-[11px] rounded border border-slate-300 bg-white font-extrabold"
+                              >
+                                {COMPANY_ENTITY_CHECK_STATUSES.map((s) => (
+                                  <option key={s} value={s}>
+                                    {s}
+                                  </option>
+                                ))}
+                              </select>
+                              <input
+                                type="text"
+                                value={companyEntityChecks[chk.notesKey] || ''}
+                                onChange={(e) =>
+                                  setCompanyEntityChecks((prev) => ({
+                                    ...prev,
+                                    [chk.notesKey]: e.target.value,
+                                  }))
+                                }
+                                placeholder="הערת ממצא / תאריך..."
+                                className="w-full p-1 text-[11px] rounded border border-slate-200 bg-white"
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
 
@@ -3737,6 +5116,643 @@ export default function CaseDrawer({
                         className="w-full p-2 text-sm rounded-lg border border-slate-300"
                       />
                     </div>
+                  </div>
+
+                  {/* ========================================================== */}
+                  {/* ענף א': ניהול דיונים בתיקי חברות (פירוק / כינוס / שיקום)   */}
+                  {/* מעקב דיונים קרובים עם סטטוס מובחן (מתקיים/נדחה/בוטל) והיסטוריית דחיות */}
+                  {/* ========================================================== */}
+                  <div className="bg-white p-4 rounded-2xl border-2 border-emerald-300 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-100 pb-2.5">
+                      <div className="flex items-center gap-2">
+                        <Gavel className="w-5 h-5 text-emerald-700" />
+                        <div>
+                          <h4 className="text-sm sm:text-base font-extrabold text-emerald-950">
+                            ענף א׳: ניהול דיונים בתיק חברות (מתקיים / נדחה / בוטל + היסטוריית דחיות)
+                          </h4>
+                          <p className="text-xs text-slate-600">
+                            מעקב דיונים קרובים, תיעוד דחיות ושמירת היסטוריית מועדים קודמים וסיבות דחייה
+                          </p>
+                        </div>
+                      </div>
+                      <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-900 text-xs font-extrabold">
+                        סה&quot;כ דיונים מתועדים: {companyHearings.length}
+                      </span>
+                    </div>
+
+                    {/* טופס הוספת דיון חדש */}
+                    <div className="grid grid-cols-1 sm:grid-cols-6 gap-2 bg-emerald-50/50 p-3 rounded-xl border border-emerald-200 no-print">
+                      <div className="sm:col-span-2">
+                        <label className="block text-[11px] font-extrabold text-slate-700 mb-0.5">
+                          נושא הדיון *
+                        </label>
+                        <input
+                          type="text"
+                          value={newHearingTitle}
+                          onChange={(e) => setNewHearingTitle(e.target.value)}
+                          placeholder="למשל: דיון בבקשה לצו פירוק / אישור הסדר..."
+                          className="w-full p-1.5 text-xs rounded-lg border border-slate-300 bg-white font-bold"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-extrabold text-slate-700 mb-0.5">
+                          מועד הדיון *
+                        </label>
+                        <input
+                          type="date"
+                          value={newHearingDate}
+                          onChange={(e) => setNewHearingDate(e.target.value)}
+                          className="w-full p-1.5 text-xs rounded-lg border border-slate-300 bg-white font-bold"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-extrabold text-slate-700 mb-0.5">
+                          סטטוס דיון
+                        </label>
+                        <select
+                          value={newHearingStatus}
+                          onChange={(e) =>
+                            setNewHearingStatus(
+                              e.target.value as HearingLiveStatus
+                            )
+                          }
+                          className="w-full p-1.5 text-xs rounded-lg border border-slate-300 bg-white font-extrabold"
+                        >
+                          {HEARING_LIVE_STATUSES.map((st) => (
+                            <option key={st} value={st}>
+                              {st}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-extrabold text-indigo-900 mb-0.5">
+                          אחראי לדיון
+                        </label>
+                        <select
+                          value={newHearingAssignee}
+                          onChange={(e) =>
+                            setNewHearingAssignee(e.target.value)
+                          }
+                          className="w-full p-1.5 text-xs rounded-lg border border-indigo-300 bg-white font-extrabold text-indigo-950"
+                        >
+                          <option value="">
+                            {assignedTo || assigneesList[0] || 'בחר אחראי'}
+                          </option>
+                          {assigneesList.map((p) => (
+                            <option key={p} value={p}>
+                              👤 {p}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex items-end">
+                        <button
+                          type="button"
+                          onClick={handleAddCompanyHearing}
+                          className="w-full py-1.5 px-3 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-extrabold transition"
+                        >
+                          + הוסף דיון
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* רשימת הדיונים בתיק + היסטוריית דחיות */}
+                    {companyHearings.length === 0 ? (
+                      <div className="text-xs text-slate-500 py-2 text-center font-bold">
+                        טרם נוספו דיונים ייעודיים בענף זה. הוסף דיון למעלה למעקב סטטוס (מתקיים / נדחה / בוטל) והיסטוריית דחיות.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {companyHearings.map((h) => {
+                          const hCd = getDueCountdown(h.hearing_date);
+                          return (
+                            <div
+                              key={h.id}
+                              className="p-3 rounded-xl border border-slate-200 bg-slate-50/70 space-y-2"
+                            >
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span
+                                    className={`px-2.5 py-0.5 rounded-full text-xs font-extrabold border ${
+                                      h.status === 'מתקיים'
+                                        ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                                        : h.status === 'נדחה'
+                                        ? 'bg-rose-100 text-rose-900 border-rose-300'
+                                        : 'bg-slate-200 text-slate-800 border-slate-300 line-through'
+                                    }`}
+                                  >
+                                    {h.status}
+                                  </span>
+                                  <span className="text-sm font-extrabold text-slate-900">
+                                    {h.title}
+                                  </span>
+                                  <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-900 border border-blue-200 text-xs font-extrabold">
+                                    מועד: {formatDateHe(h.hearing_date)} (
+                                    {hCd.label})
+                                  </span>
+                                  {h.assignee && (
+                                    <span className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-900 border border-indigo-200 text-xs font-extrabold">
+                                      👤 אחראי: {h.assignee}
+                                    </span>
+                                  )}
+                                  {h.postponements_count > 0 && (
+                                    <span className="px-2 py-0.5 rounded bg-rose-600 text-white text-xs font-extrabold">
+                                      נדחה {h.postponements_count} פעמים
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-1.5 no-print">
+                                  <select
+                                    value={h.status}
+                                    onChange={(e) =>
+                                      handleUpdateHearingStatus(
+                                        h.id,
+                                        e.target.value as HearingLiveStatus
+                                      )
+                                    }
+                                    className="p-1 text-xs rounded border border-slate-300 bg-white font-extrabold"
+                                  >
+                                    {HEARING_LIVE_STATUSES.map((st) => (
+                                      <option key={st} value={st}>
+                                        סטטוס: {st}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handlePostponeCompanyHearing(h)
+                                    }
+                                    className="px-2.5 py-1 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-900 text-xs font-extrabold border border-rose-300 transition"
+                                  >
+                                    + תעד דחיית דיון
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleDeleteCompanyHearing(h.id)
+                                    }
+                                    className="p-1 text-slate-400 hover:text-red-600"
+                                    title="מחק דיון"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+
+                              {h.postponement_history &&
+                                h.postponement_history.length > 0 && (
+                                  <div className="pt-1.5 border-t border-slate-200 text-xs space-y-1">
+                                    <div className="font-extrabold text-rose-900">
+                                      היסטוריית דחיות דיון:
+                                    </div>
+                                    {h.postponement_history.map((ph, idx) => (
+                                      <div
+                                        key={ph.id || idx}
+                                        className="text-slate-700 bg-white px-2.5 py-1 rounded border border-rose-200 flex items-center justify-between gap-2 flex-wrap"
+                                      >
+                                        <span>
+                                          <strong>דחייה #{idx + 1}:</strong>{' '}
+                                          ממועד{' '}
+                                          {formatDateHe(ph.previous_date)} ➔
+                                          למועד {formatDateHe(ph.new_date)} |{' '}
+                                          <strong>סיבה:</strong> {ph.reason}
+                                        </span>
+                                        <span className="text-[11px] text-slate-500">
+                                          תועד ע&quot;י {ph.recorded_by || 'מערכת'}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ========================================================== */}
+                  {/* ענף ב': הגשות קרובות וטווחי זמן + ייחוס משפטי + מונה ארכות */}
+                  {/* ========================================================== */}
+                  <div className="bg-white p-4 rounded-2xl border-2 border-indigo-300 space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-indigo-100 pb-2.5">
+                      <div className="flex items-center gap-2">
+                        <FileText className="w-5 h-5 text-indigo-700" />
+                        <div>
+                          <h4 className="text-sm sm:text-base font-extrabold text-indigo-950">
+                            ענף ב׳: הגשות קרובות, ייחוס להחלטות, מונה ארכות והערכת זמן כתיבה
+                          </h4>
+                          <p className="text-xs text-slate-600">
+                            דוח נאמן / בקשה / תגובה • ביחס לאיזו החלטה וממתי • תגובה לאיזו בקשה • ארכות וימי ארכה • החלטות התראה על אי-הגשה
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('conduct')}
+                        className="px-3 py-1.5 rounded-xl bg-rose-700 hover:bg-rose-800 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-2xs transition no-print"
+                      >
+                        <AlertTriangle className="w-3.5 h-3.5" />
+                        <span>לדוח בקרת התנהלות ואיחורים המלא ➔</span>
+                      </button>
+                    </div>
+
+                    {/* סינון טווחי זמן אוטומטי: השבוע הקרוב (7 ימים) / השבועיים הקרובים (14 ימים) / בהמשך / באיחור */}
+                    <div className="flex flex-wrap items-center gap-1.5 no-print">
+                      {[
+                        { id: 'all', label: `הכל (${companySubmissions.length})` },
+                        { id: 'week1', label: 'השבוע הקרוב (עד 7 ימים)' },
+                        { id: 'week2', label: 'השבועיים הקרובים (עד 14 ימים)' },
+                        { id: 'later', label: 'בהמשך (15+ ימים)' },
+                        { id: 'overdue', label: 'באיחור!' },
+                        { id: 'submitted', label: 'הוגשו ✓' },
+                      ].map((tab) => (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() =>
+                            setSubmissionsTimeFilter(
+                              tab.id as typeof submissionsTimeFilter
+                            )
+                          }
+                          className={`px-3 py-1 rounded-full text-xs font-extrabold border transition ${
+                            submissionsTimeFilter === tab.id
+                              ? 'bg-indigo-700 text-white border-indigo-800'
+                              : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
+                          }`}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* טופס הוספת הגשה / תגובה / דוח נאמן עם ייחוס משפטי מלא והערכת זמן כתיבה */}
+                    <div className="p-3 rounded-xl bg-indigo-50/50 border border-indigo-200 space-y-2.5 no-print">
+                      <div className="text-xs font-extrabold text-indigo-950">
+                        + הוספת הגשה / תגובה / דוח נאמן למעקב מועדים וארכות:
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                        <div>
+                          <label className="block text-[11px] font-extrabold text-slate-700 mb-0.5">
+                            סוג המסמך *
+                          </label>
+                          <select
+                            value={newSubDocType}
+                            onChange={(e) =>
+                              setNewSubDocType(
+                                e.target.value as CompanyDocumentType
+                              )
+                            }
+                            className="w-full p-1.5 text-xs rounded-lg border border-slate-300 bg-white font-extrabold"
+                          >
+                            {COMPANY_DOCUMENT_TYPES.map((dt) => (
+                              <option key={dt} value={dt}>
+                                {dt}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-extrabold text-slate-700 mb-0.5">
+                            נושא ההגשה *
+                          </label>
+                          <input
+                            type="text"
+                            value={newSubTitle}
+                            onChange={(e) => setNewSubTitle(e.target.value)}
+                            placeholder="למשל: דוח נאמן מס׳ 3 / תגובה לבקשה 14..."
+                            className="w-full p-1.5 text-xs rounded-lg border border-slate-300 bg-white font-bold"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-extrabold text-slate-700 mb-0.5">
+                            ביחס לאיזו החלטה (שופט/מותב)
+                          </label>
+                          <input
+                            type="text"
+                            value={newSubDecisionRef}
+                            onChange={(e) =>
+                              setNewSubDecisionRef(e.target.value)
+                            }
+                            placeholder="למשל: החלטת כב׳ השופט ח׳ ברנר"
+                            className="w-full p-1.5 text-xs rounded-lg border border-slate-300 bg-white font-bold"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-extrabold text-slate-700 mb-0.5">
+                            ממתי ההחלטה (תאריך החלטת מקור)
+                          </label>
+                          <input
+                            type="date"
+                            value={newSubDecisionDate}
+                            onChange={(e) =>
+                              setNewSubDecisionDate(e.target.value)
+                            }
+                            className="w-full p-1.5 text-xs rounded-lg border border-slate-300 bg-white font-bold"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-extrabold text-slate-700 mb-0.5">
+                            תגובה לאיזו בקשה ותיאור קצר
+                          </label>
+                          <input
+                            type="text"
+                            value={newSubResponseTo}
+                            onChange={(e) =>
+                              setNewSubResponseTo(e.target.value)
+                            }
+                            placeholder="למשל: תגובה לבקשת הנושה למימוש בטוחה..."
+                            className="w-full p-1.5 text-xs rounded-lg border border-slate-300 bg-white font-bold"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-extrabold text-rose-900 mb-0.5">
+                            תאריך יעד מקורי להגשה *
+                          </label>
+                          <input
+                            type="date"
+                            value={newSubDueDate}
+                            onChange={(e) => setNewSubDueDate(e.target.value)}
+                            className="w-full p-1.5 text-xs rounded-lg border border-rose-400 bg-white font-extrabold"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-extrabold text-slate-700 mb-0.5">
+                            הערכת זמן נדרש לכתיבה (שעות/ימים)
+                          </label>
+                          <input
+                            type="text"
+                            value={newSubEstTime}
+                            onChange={(e) => setNewSubEstTime(e.target.value)}
+                            placeholder="למשל: 4 שעות / 2 ימים"
+                            className="w-full p-1.5 text-xs rounded-lg border border-slate-300 bg-white font-bold"
+                          />
+                        </div>
+
+                        <div className="flex items-end gap-1.5">
+                          <div className="flex-1">
+                            <label className="block text-[11px] font-extrabold text-indigo-950 mb-0.5">
+                              אחראי לביצוע
+                            </label>
+                            <select
+                              value={newSubAssignee}
+                              onChange={(e) =>
+                                setNewSubAssignee(e.target.value)
+                              }
+                              className="w-full p-1.5 text-xs rounded-lg border border-indigo-300 bg-white font-extrabold text-indigo-950"
+                            >
+                              <option value="">
+                                {assignedTo || assigneesList[0] || 'אליאב'}
+                              </option>
+                              {assigneesList.map((p) => (
+                                <option key={p} value={p}>
+                                  👤 {p}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleAddCompanySubmission}
+                            className="py-1.5 px-3 rounded-lg bg-indigo-700 hover:bg-indigo-800 text-white text-xs font-extrabold shrink-0 transition"
+                          >
+                            + הוסף הגשה
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* רשימת ההגשות המסוננת לפי טווח זמן + מונה ארכות וימי ארכה + סטטוס עמידה במועד */}
+                    {(() => {
+                      const todayStr = new Date().toISOString().split('T')[0];
+                      const filteredSubs = companySubmissions.filter((s) => {
+                        const cd = getDueCountdown(s.due_date);
+                        if (submissionsTimeFilter === 'submitted')
+                          return s.is_submitted;
+                        if (submissionsTimeFilter === 'overdue')
+                          return (
+                            !s.is_submitted &&
+                            Boolean(s.due_date && s.due_date < todayStr)
+                          );
+                        if (submissionsTimeFilter === 'week1')
+                          return (
+                            !s.is_submitted &&
+                            cd.daysDiff !== null &&
+                            cd.daysDiff >= 0 &&
+                            cd.daysDiff <= 7
+                          );
+                        if (submissionsTimeFilter === 'week2')
+                          return (
+                            !s.is_submitted &&
+                            cd.daysDiff !== null &&
+                            cd.daysDiff >= 0 &&
+                            cd.daysDiff <= 14
+                          );
+                        if (submissionsTimeFilter === 'later')
+                          return (
+                            !s.is_submitted &&
+                            cd.daysDiff !== null &&
+                            cd.daysDiff > 14
+                          );
+                        return true;
+                      });
+
+                      if (filteredSubs.length === 0) {
+                        return (
+                          <div className="text-xs text-slate-500 py-3 text-center font-bold">
+                            אין הגשות בטווח הזמן שנבחר. הוסף הגשה / תגובה / דוח נאמן בטופס למעלה.
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="space-y-2.5">
+                          {filteredSubs.map((s) => {
+                            const compareDate =
+                              s.is_submitted && s.submitted_at
+                                ? s.submitted_at
+                                : todayStr;
+                            const dueObj = new Date(`${s.due_date}T00:00:00`);
+                            const cmpObj = new Date(`${compareDate}T00:00:00`);
+                            const diffLateDays = Math.max(
+                              0,
+                              Math.round(
+                                (cmpObj.getTime() - dueObj.getTime()) /
+                                  (1000 * 60 * 60 * 24)
+                              )
+                            );
+                            const isLate = diffLateDays > 0;
+
+                            return (
+                              <div
+                                key={s.id}
+                                className={`p-3.5 rounded-xl border-2 space-y-2 ${
+                                  isLate
+                                    ? 'bg-red-50/50 border-red-300'
+                                    : s.is_submitted
+                                    ? 'bg-emerald-50/40 border-emerald-300'
+                                    : 'bg-slate-50 border-slate-200'
+                                }`}
+                              >
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="px-2.5 py-0.5 rounded-lg bg-indigo-700 text-white text-xs font-extrabold">
+                                      {s.document_type}
+                                    </span>
+                                    <span className="text-sm font-extrabold text-slate-900">
+                                      {s.title}
+                                    </span>
+
+                                    {/* חיווי עמידה במועד מול איחור */}
+                                    <span
+                                      className={`px-2.5 py-0.5 rounded-full text-xs font-extrabold border ${
+                                        isLate
+                                          ? 'bg-red-600 text-white border-red-700'
+                                          : 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                                      }`}
+                                    >
+                                      {s.is_submitted
+                                        ? isLate
+                                          ? `הוגש באיחור (${diffLateDays} ימים)`
+                                          : 'הוגש במועד ✓'
+                                        : isLate
+                                        ? `באיחור (${diffLateDays} ימים!)`
+                                        : 'במועד ✓'}
+                                    </span>
+
+                                    <span className="px-2.5 py-0.5 rounded bg-white border border-indigo-200 text-indigo-950 text-xs font-extrabold">
+                                      👤 אחראי: {s.assignee}
+                                    </span>
+
+                                    {s.estimated_writing_time && (
+                                      <span className="px-2 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-950 text-xs font-bold">
+                                        ⏱️ זמן כתיבה: {s.estimated_writing_time}
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div className="flex items-center gap-1.5 flex-wrap no-print">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleAddSubmissionExtension(s)
+                                      }
+                                      className="px-2.5 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-300 text-xs font-extrabold transition"
+                                    >
+                                      + בקשת ארכה ({s.extensions_count} בקשות |{' '}
+                                      {s.total_extension_days} ימים)
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleIncrementSubmissionWarningDecision(
+                                          s
+                                        )
+                                      }
+                                      className="px-2.5 py-1 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-900 border border-rose-300 text-xs font-extrabold transition"
+                                      title="תעד החלטת התראה שיפוטית על אי-הגשה במועד"
+                                    >
+                                      ⚠️ החלטת התראה ({s.late_warning_decisions_count || 0})
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleToggleSubmissionDone(s)
+                                      }
+                                      className={`px-3 py-1 rounded-lg text-xs font-extrabold transition ${
+                                        s.is_submitted
+                                          ? 'bg-emerald-600 text-white'
+                                          : 'bg-blue-600 hover:bg-blue-700 text-white'
+                                      }`}
+                                    >
+                                      {s.is_submitted
+                                        ? `הוגש ב-${formatDateHe(s.submitted_at)} ✓`
+                                        : 'סמן כהוגש'}
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleDeleteCompanySubmission(s.id)
+                                      }
+                                      className="p-1 text-slate-400 hover:text-red-600"
+                                      title="מחק הגשה"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 text-xs text-slate-700 bg-white/80 p-2 rounded-lg border border-slate-200">
+                                  <div>
+                                    <strong>החלטת מקור:</strong>{' '}
+                                    {s.related_decision_ref || '—'}{' '}
+                                    {s.related_decision_date
+                                      ? `(${formatDateHe(
+                                          s.related_decision_date
+                                        )})`
+                                      : ''}
+                                  </div>
+                                  <div>
+                                    <strong>תגובה לבקשה / תיאור:</strong>{' '}
+                                    {s.response_to_request ||
+                                      s.short_description ||
+                                      '—'}
+                                  </div>
+                                  <div>
+                                    <strong>יעד מקורי:</strong>{' '}
+                                    {formatDateHe(s.original_due_date)}
+                                  </div>
+                                  <div>
+                                    <strong>יעד נוכחי (אחרי ארכות):</strong>{' '}
+                                    <span className="font-extrabold text-indigo-900">
+                                      {formatDateHe(s.due_date)}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {s.extension_requests &&
+                                  s.extension_requests.length > 0 && (
+                                    <div className="text-xs text-amber-950 bg-amber-50/70 px-2.5 py-1.5 rounded-lg border border-amber-200">
+                                      <strong>
+                                        פירוט בקשות ארכה ({s.extensions_count}{' '}
+                                        בקשות — סה&quot;כ {s.total_extension_days}{' '}
+                                        ימי ארכה ניתנו):
+                                      </strong>{' '}
+                                      {s.extension_requests
+                                        .map(
+                                          (r, idx) =>
+                                            `ארכה #${idx + 1} (${formatDateHe(
+                                              r.requested_at
+                                            )}): התבקשו ${
+                                              r.days_requested
+                                            } ימים, ניתנו ${
+                                              r.days_approved
+                                            } ימים${
+                                              r.reason ? ` [${r.reason}]` : ''
+                                            }`
+                                        )
+                                        .join(' • ')}
+                                    </div>
+                                  )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               )}
@@ -4069,27 +6085,115 @@ export default function CaseDrawer({
                 </div>
 
                 <div>
-                  <label className="block text-sm font-extrabold text-slate-800 mb-1.5">
-                    תגיות מאפיינים (לסינון מהיר)
-                  </label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {CASE_TAGS.map((tag) => {
-                      const active = tags.includes(tag);
-                      return (
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-sm font-extrabold text-slate-800">
+                      {getUiLabel('tags_section_title', 'תגיות מאפיינים (לסינון מהיר)')}
+                    </label>
+                    {systemEditMode && (
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="text"
+                          value={newCustomTagInput}
+                          onChange={(e) => setNewCustomTagInput(e.target.value)}
+                          placeholder="תגית חדשה..."
+                          className="p-1 text-xs rounded border border-amber-400 bg-amber-50 font-bold w-28"
+                        />
                         <button
-                          key={tag}
                           type="button"
-                          onClick={() => toggleTag(tag)}
-                          className={`px-3 py-1 rounded-full text-xs font-extrabold border transition ${
-                            active
-                              ? 'bg-indigo-600 text-white border-indigo-600'
-                              : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
-                          }`}
+                          onClick={() => {
+                            if (!newCustomTagInput.trim()) return;
+                            const nextTags = addCustomCaseTag(
+                              newCustomTagInput.trim()
+                            );
+                            setCustomTagsList(nextTags);
+                            setNewCustomTagInput('');
+                          }}
+                          className="px-2 py-1 rounded bg-amber-600 text-white text-xs font-extrabold"
                         >
-                          {active ? `✓ ${tag}` : tag}
+                          + תגית
                         </button>
-                      );
-                    })}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(customTagsList.length > 0 ? customTagsList : CASE_TAGS).map(
+                      (tagStr) => {
+                        const tag = tagStr as CaseTag;
+                        const active = tags.includes(tag);
+                        return (
+                          <div
+                            key={tagStr}
+                            className="inline-flex items-center gap-0.5"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => toggleTag(tag)}
+                              className={`px-3 py-1 rounded-full text-xs font-extrabold border transition ${
+                                active
+                                  ? 'bg-indigo-600 text-white border-indigo-600'
+                                  : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
+                              }`}
+                            >
+                              {active ? `✓ ${tagStr}` : tagStr}
+                            </button>
+                            {systemEditMode && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const nextName = window.prompt(
+                                      `ערוך שם תגית "${tagStr}":`,
+                                      tagStr
+                                    );
+                                    if (!nextName || !nextName.trim()) return;
+                                    const res = renameCustomCaseTag(
+                                      tagStr,
+                                      nextName.trim()
+                                    );
+                                    setCustomTagsList(res.tags);
+                                    if (tags.includes(tag)) {
+                                      setTags((prev) =>
+                                        prev.map((t) =>
+                                          (t as string) === tagStr
+                                            ? (nextName.trim() as CaseTag)
+                                            : t
+                                        )
+                                      );
+                                    }
+                                    if (onAllCasesUpdated) {
+                                      onAllCasesUpdated(res.cases);
+                                    }
+                                  }}
+                                  title="ערוך שם תגית (✏️)"
+                                  className="text-xs text-slate-400 hover:text-blue-600"
+                                >
+                                  ✏️
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const res = deleteCustomCaseTag(tagStr);
+                                    setCustomTagsList(res.tags);
+                                    setTags((prev) =>
+                                      prev.filter(
+                                        (t) => (t as string) !== tagStr
+                                      )
+                                    );
+                                    if (onAllCasesUpdated) {
+                                      onAllCasesUpdated(res.cases);
+                                    }
+                                  }}
+                                  title="מחק תגית (🗑️)"
+                                  className="text-xs text-slate-400 hover:text-red-600"
+                                >
+                                  🗑️
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        );
+                      }
+                    )}
                   </div>
                 </div>
               </div>
@@ -4568,6 +6672,350 @@ export default function CaseDrawer({
               </div>
             </div>
           )}
+
+          {/* ================================================================ */}
+          {/* לשונית 4: דוח בקרת התנהלות ואיחורים (להפקת לקחים ושיפור — v8.5)   */}
+          {/* ================================================================ */}
+          {activeTab === 'conduct' &&
+            (() => {
+              const currentCaseSnapshot: CaseItem = {
+                ...caseItem,
+                debtor_name: debtorName,
+                case_number: caseNumber,
+                category,
+                current_stage: currentStage,
+                stage_note: stageNote,
+                notes,
+                next_action_type: nextActionType,
+                next_action_description: nextActionDescription,
+                next_due_date: nextDueDate || null,
+                assigned_to: assignedTo,
+                extensions_count: extensionsCount,
+                total_extension_days: totalExtensionDays,
+                late_warning_decisions_count: lateWarningDecisionsCount,
+                postponed_reason: postponedReason,
+                company_hearings: companyHearings,
+                company_submissions: companySubmissions,
+              };
+              const conductReport = buildConductReportSummaryAndRows([
+                currentCaseSnapshot,
+              ]);
+
+              return (
+                <div className="space-y-4">
+                  {/* כותרת דוח בקרת התנהלות ואיחורים + כפתורי הדפסה בשחור-לבן וייצוא לאקסל */}
+                  <div className="bg-white p-4 rounded-2xl border-2 border-rose-200 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-base sm:text-lg font-extrabold text-slate-900 flex items-center gap-2">
+                        <AlertTriangle className="w-5 h-5 text-rose-600" />
+                        <span>
+                          דוח בקרת התנהלות ואיחורים בתיק: {debtorName} (להפקת לקחים ושיפור)
+                        </span>
+                      </h3>
+                      <p className="text-xs text-slate-600 mt-0.5">
+                        ריכוז כל התגובות וההגשות באיחור, סך ימי האיחור המצטברים, פירוט בקשות ארכה וימי ארכה, מונה החלטות התראה וטבלה משווה
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap no-print">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (onPrintCaseZone) {
+                            onPrintCaseZone(
+                              currentCaseSnapshot,
+                              logs,
+                              'conduct',
+                              'conduct'
+                            );
+                          } else {
+                            window.print();
+                          }
+                        }}
+                        className="px-3.5 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-2xs transition"
+                      >
+                        <Printer className="w-4 h-4" />
+                        <span>הדפסת דוח בקרת איחורים (שחור-לבן)</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          exportConductAndDelayReportToXlsx(
+                            [currentCaseSnapshot],
+                            `דוח_בקרת_התנהלות_${debtorName}`
+                          )
+                        }
+                        className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold flex items-center gap-1.5 shadow-2xs transition"
+                      >
+                        <FileSpreadsheet className="w-4 h-4" />
+                        <span>ייצוא דוח בקרת איחורים לאקסל (.xlsx)</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 4 כרטיסי מדדי בקרת איחורים וארכות */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div className="bg-white p-4 rounded-2xl border border-slate-200 border-t-4 border-t-rose-600 shadow-2xs">
+                      <div className="text-xs font-extrabold text-slate-600">
+                        תגובות והגשות באיחור
+                      </div>
+                      <div className="text-2xl font-extrabold text-rose-700 mt-1">
+                        {conductReport.lateSubmissionsCount}{' '}
+                        <span className="text-sm font-bold text-slate-600">
+                          מתוך {conductReport.totalSubmissions}
+                        </span>
+                      </div>
+                      <div className="text-xs font-extrabold text-rose-900 mt-1">
+                        סך ימי איחור מצטברים:{' '}
+                        {conductReport.totalCumulativeLateDays} ימים
+                      </div>
+                    </div>
+
+                    <div className="bg-white p-4 rounded-2xl border border-slate-200 border-t-4 border-t-amber-500 shadow-2xs">
+                      <div className="text-xs font-extrabold text-slate-600">
+                        בקשות ארכה וימי ארכה
+                      </div>
+                      <div className="text-2xl font-extrabold text-amber-700 mt-1">
+                        {conductReport.totalExtensionRequestsCount}{' '}
+                        <span className="text-sm font-bold text-slate-600">
+                          בקשות ארכה
+                        </span>
+                      </div>
+                      <div className="text-xs font-extrabold text-amber-900 mt-1">
+                        סה&quot;כ ימי ארכה שניתנו:{' '}
+                        {conductReport.totalExtensionDaysGranted} ימים
+                      </div>
+                    </div>
+
+                    <div className="bg-white p-4 rounded-2xl border border-slate-200 border-t-4 border-t-purple-600 shadow-2xs">
+                      <div className="text-xs font-extrabold text-slate-600">
+                        החלטות התראה על אי-הגשה במועד
+                      </div>
+                      <div className="text-2xl font-extrabold text-purple-800 mt-1">
+                        {conductReport.totalLateWarningDecisions}
+                      </div>
+                      <div className="text-xs font-bold text-slate-600 mt-1">
+                        החלטות שיפוטיות שניתנו עקב איחור
+                      </div>
+                    </div>
+
+                    <div className="bg-white p-4 rounded-2xl border border-slate-200 border-t-4 border-t-emerald-600 shadow-2xs">
+                      <div className="text-xs font-extrabold text-slate-600">
+                        שיעור עמידה במועדים
+                      </div>
+                      <div className="text-2xl font-extrabold text-emerald-700 mt-1">
+                        {conductReport.onTimeRatePercent}%
+                      </div>
+                      <div className="text-xs font-bold text-emerald-900 mt-1">
+                        {conductReport.onTimeSubmissionsCount} הגשות במועד ✓
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* טופס מהיר להוספת הגשה / תגובה / דוח נאמן למעקב מתוך דוח הבקרה */}
+                  <div className="bg-white p-4 rounded-2xl border border-indigo-200 space-y-2.5 no-print">
+                    <div className="text-xs font-extrabold text-indigo-950">
+                      + תיעוד הגשה / תגובה / דוח נאמן בטבלת בקרת ההתנהלות והפקת הלקחים:
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                      <select
+                        value={newSubDocType}
+                        onChange={(e) =>
+                          setNewSubDocType(
+                            e.target.value as CompanyDocumentType
+                          )
+                        }
+                        className="p-2 text-xs rounded-lg border border-slate-300 bg-white font-extrabold"
+                      >
+                        {COMPANY_DOCUMENT_TYPES.map((dt) => (
+                          <option key={dt} value={dt}>
+                            סוג: {dt}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="text"
+                        value={newSubTitle}
+                        onChange={(e) => setNewSubTitle(e.target.value)}
+                        placeholder="נושא ההגשה *"
+                        className="p-2 text-xs rounded-lg border border-slate-300 bg-white font-bold"
+                      />
+                      <input
+                        type="text"
+                        value={newSubDecisionRef}
+                        onChange={(e) => setNewSubDecisionRef(e.target.value)}
+                        placeholder="ביחס לאיזו החלטה (החלטת מקור)"
+                        className="p-2 text-xs rounded-lg border border-slate-300 bg-white font-bold"
+                      />
+                      <input
+                        type="date"
+                        value={newSubDecisionDate}
+                        onChange={(e) => setNewSubDecisionDate(e.target.value)}
+                        title="ממתי ההחלטה"
+                        className="p-2 text-xs rounded-lg border border-slate-300 bg-white font-bold"
+                      />
+                      <input
+                        type="text"
+                        value={newSubResponseTo}
+                        onChange={(e) => setNewSubResponseTo(e.target.value)}
+                        placeholder="תגובה לאיזו בקשה ותיאור קצר"
+                        className="p-2 text-xs rounded-lg border border-slate-300 bg-white font-bold"
+                      />
+                      <input
+                        type="date"
+                        value={newSubDueDate}
+                        onChange={(e) => setNewSubDueDate(e.target.value)}
+                        title="תאריך יעד מקורי *"
+                        className="p-2 text-xs rounded-lg border border-rose-400 bg-white font-extrabold"
+                      />
+                      <input
+                        type="text"
+                        value={newSubEstTime}
+                        onChange={(e) => setNewSubEstTime(e.target.value)}
+                        placeholder="הערכת זמן כתיבה (למשל: 3 שעות / 2 ימים)"
+                        className="p-2 text-xs rounded-lg border border-slate-300 bg-white font-bold"
+                      />
+                      <div className="flex items-center gap-1.5">
+                        <select
+                          value={newSubAssignee}
+                          onChange={(e) => setNewSubAssignee(e.target.value)}
+                          className="flex-1 p-2 text-xs rounded-lg border border-indigo-300 bg-white font-extrabold text-indigo-950"
+                        >
+                          <option value="">
+                            אחראי: {assignedTo || assigneesList[0] || 'אליאב'}
+                          </option>
+                          {assigneesList.map((p) => (
+                            <option key={p} value={p}>
+                              👤 {p}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={handleAddCompanySubmission}
+                          className="px-3 py-2 rounded-lg bg-indigo-700 hover:bg-indigo-800 text-white text-xs font-extrabold shrink-0"
+                        >
+                          + הוסף
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* טבלה משווה להפקת לקחים */}
+                  <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+                    <div className="px-4 py-3 bg-slate-900 text-white flex items-center justify-between">
+                      <span className="text-sm font-extrabold">
+                        טבלה משווה להפקת לקחים: הגשות, החלטות מקור, ארכות, פערי ימים, אחראים והערכת זמן כתיבה
+                      </span>
+                      <span className="text-xs text-slate-300">
+                        {conductReport.rows.length} שורות בבקרה
+                      </span>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-right border-collapse text-xs">
+                        <thead>
+                          <tr className="bg-slate-100 text-slate-800 border-b border-slate-200 font-extrabold">
+                            <th className="py-2.5 px-3">סוג ונושא ההגשה</th>
+                            <th className="py-2.5 px-3">החלטת מקור ותגובה לבקשה</th>
+                            <th className="py-2.5 px-3">תאריך יעד מקורי</th>
+                            <th className="py-2.5 px-3">בקשות ארכה ויעד מעודכן</th>
+                            <th className="py-2.5 px-3">תאריך הגשה בפועל</th>
+                            <th className="py-2.5 px-3">פער ימים (במועד / איחור)</th>
+                            <th className="py-2.5 px-3">החלטות התראה</th>
+                            <th className="py-2.5 px-3">אחראי לביצוע</th>
+                            <th className="py-2.5 px-3">הערכת זמן כתיבה</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200">
+                          {conductReport.rows.length === 0 ? (
+                            <tr>
+                              <td
+                                colSpan={9}
+                                className="py-6 text-center text-slate-500 font-bold"
+                              >
+                                אין עדיין הגשות או מועדים מתועדים בתיק זה.
+                              </td>
+                            </tr>
+                          ) : (
+                            conductReport.rows.map((r) => (
+                              <tr
+                                key={r.id}
+                                className={
+                                  r.isLate
+                                    ? 'bg-red-50/50 hover:bg-red-50'
+                                    : 'bg-white hover:bg-slate-50'
+                                }
+                              >
+                                <td className="py-2.5 px-3 font-extrabold text-slate-900">
+                                  <span className="inline-block ml-1.5 px-2 py-0.5 rounded bg-indigo-100 text-indigo-900 text-[11px]">
+                                    {r.documentType}
+                                  </span>
+                                  {r.subject}
+                                </td>
+                                <td className="py-2.5 px-3 text-slate-700">
+                                  <div className="font-bold">
+                                    {r.sourceDecision}
+                                  </div>
+                                  {r.responseToRequest !== '—' && (
+                                    <div className="text-[11px] text-slate-500">
+                                      תגובה ל: {r.responseToRequest}
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="py-2.5 px-3 font-mono font-bold">
+                                  {formatDateHe(r.originalDueDate)}
+                                </td>
+                                <td className="py-2.5 px-3">
+                                  <div className="font-extrabold text-amber-900">
+                                    {r.extensionsCount} בקשות (
+                                    {r.totalExtensionDays} ימים)
+                                  </div>
+                                  <div className="text-[11px] text-slate-600 font-mono">
+                                    יעד: {formatDateHe(r.currentDueDate)}
+                                  </div>
+                                  {r.extensionsBreakdown && (
+                                    <div className="text-[10px] text-slate-500">
+                                      {r.extensionsBreakdown}
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="py-2.5 px-3 font-mono font-bold">
+                                  {r.actualSubmittedDate
+                                    ? formatDateHe(r.actualSubmittedDate)
+                                    : 'טרם הוגש'}
+                                </td>
+                                <td className="py-2.5 px-3">
+                                  <span
+                                    className={`px-2.5 py-0.5 rounded-full text-[11px] font-extrabold ${
+                                      r.isLate
+                                        ? 'bg-red-600 text-white'
+                                        : 'bg-emerald-100 text-emerald-900'
+                                    }`}
+                                  >
+                                    {r.statusLabel}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3 text-center font-extrabold text-rose-800">
+                                  {r.lateWarningDecisionsCount}
+                                </td>
+                                <td className="py-2.5 px-3 font-extrabold text-indigo-950">
+                                  👤 {r.assignee}
+                                </td>
+                                <td className="py-2.5 px-3 font-bold text-slate-700">
+                                  {r.estimatedWritingTime}
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
         </div>
       </div>
     </div>

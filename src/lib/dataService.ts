@@ -8,16 +8,23 @@ import {
   OPTIONAL_DEMO_LOGS,
 } from './sampleData';
 import {
+  CASE_TAGS,
   CaseCategory,
   CaseCustomField,
   CaseDistrict,
   CaseItem,
   CaseLog,
+  CaseMilestone,
+  CaseTag,
+  CompanyEntityChecks,
   CustomFieldScope,
   CustomFieldType,
+  DEFAULT_ACTION_TAGS,
+  DEFAULT_CONTACT_CATEGORIES,
   FullSystemBackup,
   MunicipalitySetting,
   NetHaMishpatStatus,
+  OfficeContactItem,
   SystemUserAccount,
   UserSession,
   WorkerPermissionsConfig,
@@ -310,7 +317,10 @@ export function safeNormalizeCaseItem(raw: Partial<CaseItem>): CaseItem {
     next_action_type: raw.next_action_type || 'אחר',
     next_action_description: raw.next_action_description ?? '',
     next_due_date: raw.next_due_date ?? null,
+    assigned_to: raw.assigned_to ?? '',
     extensions_count: Number(raw.extensions_count) || 0,
+    total_extension_days: Number(raw.total_extension_days) || 0,
+    late_warning_decisions_count: Number(raw.late_warning_decisions_count) || 0,
     is_hearing_postponed: Boolean(raw.is_hearing_postponed),
     postponed_reason: raw.postponed_reason ?? '',
     trustee_report_due_date: raw.trustee_report_due_date ?? null,
@@ -347,8 +357,21 @@ export function safeNormalizeCaseItem(raw: Partial<CaseItem>): CaseItem {
     new_debts_tracking: raw.new_debts_tracking ?? '',
 
     // חברות
+    appointment_date: raw.appointment_date ?? null,
+    guarantee_bond_due_date: raw.guarantee_bond_due_date ?? null,
     self_undertaking_deposited: Boolean(raw.self_undertaking_deposited),
     self_undertaking_date: raw.self_undertaking_date ?? null,
+    company_entity_checks: raw.company_entity_checks || {
+      company_extract_status: 'טרם נשלח',
+      company_extract_notes: '',
+      financial_entities_status: 'טרם נשלח',
+      financial_entities_notes: '',
+      tax_authority_status: 'טרם נשלח',
+      tax_authority_notes: '',
+      insurance_pension_status: 'טרם נשלח',
+      insurance_pension_notes: '',
+    },
+    company_documents_stage: raw.company_documents_stage || 'קבלת מסמכים',
     insurance_and_assets_letters_status:
       raw.insurance_and_assets_letters_status ?? '',
     representative_contact_details: raw.representative_contact_details ?? '',
@@ -360,6 +383,12 @@ export function safeNormalizeCaseItem(raw: Partial<CaseItem>): CaseItem {
     trustee_findings_summary: raw.trustee_findings_summary ?? '',
     company_resolution_decision:
       raw.company_resolution_decision || 'טרם הוכרע',
+    company_hearings: Array.isArray(raw.company_hearings)
+      ? raw.company_hearings
+      : [],
+    company_submissions: Array.isArray(raw.company_submissions)
+      ? raw.company_submissions
+      : [],
 
     // חברה משכנת
     housing_project_name: raw.housing_project_name ?? '',
@@ -1406,6 +1435,714 @@ export async function bulkApplyStageMutation(params: {
   saveLocalCases(updatedCases);
   return updatedCases;
 }
+
+// ============================================================================
+// ניהול אחראים לביצוע (Assignees) — הוספה, עריכה ומחיקה של אנשי צוות (v8.5)
+// ============================================================================
+const STORAGE_ASSIGNEES_KEY = 'legal_fork_assignees_v1';
+
+export const DEFAULT_ASSIGNEES: string[] = [
+  'אליאב',
+  'רון',
+  'מזכירות',
+  'מתמחה',
+];
+
+export function getAssigneesList(): string[] {
+  if (typeof window === 'undefined') return DEFAULT_ASSIGNEES;
+  const raw = localStorage.getItem(STORAGE_ASSIGNEES_KEY);
+  if (!raw) {
+    localStorage.setItem(
+      STORAGE_ASSIGNEES_KEY,
+      JSON.stringify(DEFAULT_ASSIGNEES)
+    );
+    return DEFAULT_ASSIGNEES;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length > 0
+      ? parsed
+      : DEFAULT_ASSIGNEES;
+  } catch {
+    return DEFAULT_ASSIGNEES;
+  }
+}
+
+export function saveAssigneesList(list: string[]): string[] {
+  const clean = Array.from(
+    new Set(list.map((s) => s.trim()).filter(Boolean))
+  );
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(STORAGE_ASSIGNEES_KEY, JSON.stringify(clean));
+  }
+  return clean;
+}
+
+export function addAssigneeName(name: string): string[] {
+  const clean = name.trim();
+  if (!clean) return getAssigneesList();
+  const current = getAssigneesList();
+  if (current.includes(clean)) return current;
+  return saveAssigneesList([...current, clean]);
+}
+
+export function renameAssigneeName(oldName: string, newName: string): string[] {
+  const cleanNew = newName.trim();
+  if (!cleanNew) return getAssigneesList();
+  const current = getAssigneesList().map((a) =>
+    a === oldName ? cleanNew : a
+  );
+  // עדכון בטוח גם בתיקים הקיימים
+  const cases = getLocalCases();
+  let changed = false;
+  const updated = cases.map((c) => {
+    let caseChanged = false;
+    let nextAssigned = c.assigned_to;
+    if (nextAssigned === oldName) {
+      nextAssigned = cleanNew;
+      caseChanged = true;
+    }
+    const nextMs = (c.milestones || []).map((m) => {
+      if (m.assignee === oldName) {
+        caseChanged = true;
+        return { ...m, assignee: cleanNew };
+      }
+      return m;
+    });
+    const nextSubs = (c.company_submissions || []).map((s) => {
+      if (s.assignee === oldName) {
+        caseChanged = true;
+        return { ...s, assignee: cleanNew };
+      }
+      return s;
+    });
+    const nextHearings = (c.company_hearings || []).map((h) => {
+      if (h.assignee === oldName) {
+        caseChanged = true;
+        return { ...h, assignee: cleanNew };
+      }
+      return h;
+    });
+    if (!caseChanged) return c;
+    changed = true;
+    return {
+      ...c,
+      assigned_to: nextAssigned,
+      milestones: nextMs,
+      company_submissions: nextSubs,
+      company_hearings: nextHearings,
+    };
+  });
+  if (changed) saveLocalCases(updated);
+  return saveAssigneesList(current);
+}
+
+export function deleteAssigneeName(name: string): string[] {
+  const current = getAssigneesList().filter((a) => a !== name);
+  return saveAssigneesList(current);
+}
+
+// ============================================================================
+// גמישות עריכה מלאה ב-Live Admin Edit Mode: עריכת תגיות, כרטיסיות ושדות מותאמים
+// ============================================================================
+const STORAGE_CUSTOM_TAGS_KEY = 'legal_fork_custom_tags_v1';
+const STORAGE_CUSTOM_UI_LABELS_KEY = 'legal_fork_ui_labels_v1';
+
+export function getCustomTagsList(): string[] {
+  if (typeof window === 'undefined') return [...CASE_TAGS];
+  const raw = localStorage.getItem(STORAGE_CUSTOM_TAGS_KEY);
+  if (!raw) {
+    localStorage.setItem(
+      STORAGE_CUSTOM_TAGS_KEY,
+      JSON.stringify([...CASE_TAGS])
+    );
+    return [...CASE_TAGS];
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length > 0
+      ? parsed
+      : [...CASE_TAGS];
+  } catch {
+    return [...CASE_TAGS];
+  }
+}
+
+export function addCustomCaseTag(tag: string): string[] {
+  const clean = tag.trim();
+  if (!clean) return getCustomTagsList();
+  const list = getCustomTagsList();
+  if (!list.includes(clean)) {
+    const next = [...list, clean];
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(STORAGE_CUSTOM_TAGS_KEY, JSON.stringify(next));
+    }
+    return next;
+  }
+  return list;
+}
+
+export function renameCustomCaseTag(
+  oldTag: string,
+  newTag: string
+): { tags: string[]; cases: CaseItem[] } {
+  const cleanNew = newTag.trim();
+  if (!cleanNew) return { tags: getCustomTagsList(), cases: getLocalCases() };
+  const nextTags = Array.from(
+    new Set(
+      getCustomTagsList().map((t) => (t === oldTag ? cleanNew : t))
+    )
+  );
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(STORAGE_CUSTOM_TAGS_KEY, JSON.stringify(nextTags));
+  }
+  const updatedCases = getLocalCases().map((c) => {
+    if (!(c.tags || []).includes(oldTag as CaseTag)) return c;
+    return {
+      ...c,
+      tags: (c.tags || []).map((t) =>
+        (t as string) === oldTag ? (cleanNew as CaseTag) : t
+      ),
+    };
+  });
+  saveLocalCases(updatedCases);
+  return { tags: nextTags, cases: updatedCases };
+}
+
+export function deleteCustomCaseTag(tagToDelete: string): {
+  tags: string[];
+  cases: CaseItem[];
+} {
+  const nextTags = getCustomTagsList().filter((t) => t !== tagToDelete);
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(STORAGE_CUSTOM_TAGS_KEY, JSON.stringify(nextTags));
+  }
+  const updatedCases = getLocalCases().map((c) => ({
+    ...c,
+    tags: (c.tags || []).filter((t) => (t as string) !== tagToDelete),
+  }));
+  saveLocalCases(updatedCases);
+  return { tags: nextTags, cases: updatedCases };
+}
+
+export function getCustomUiLabels(): Record<string, string> {
+  if (typeof window === 'undefined') return {};
+  const raw = localStorage.getItem(STORAGE_CUSTOM_UI_LABELS_KEY);
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw) as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+export function saveCustomUiLabel(
+  key: string,
+  newLabel: string
+): Record<string, string> {
+  const current = getCustomUiLabels();
+  const clean = newLabel.trim();
+  if (!clean) {
+    delete current[key];
+  } else {
+    current[key] = clean;
+  }
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(
+      STORAGE_CUSTOM_UI_LABELS_KEY,
+      JSON.stringify(current)
+    );
+  }
+  return { ...current };
+}
+
+export async function renameCustomFieldAcrossCases(params: {
+  field_key: string;
+  new_label: string;
+  scope: CustomFieldScope;
+  target_case_id?: string;
+}): Promise<CaseItem[]> {
+  const clean = params.new_label.trim();
+  if (!clean) return getLocalCases();
+  const user = getCurrentUserSession();
+  const now = new Date().toISOString();
+  const cases = getLocalCases().map((c) => {
+    if (params.scope === 'case' && c.id !== params.target_case_id) return c;
+    const fields = c.custom_fields || [];
+    if (!fields.some((f) => f.field_key === params.field_key)) return c;
+    return {
+      ...c,
+      custom_fields: fields.map((f) =>
+        f.field_key === params.field_key
+          ? { ...f, label: clean, updated_by: user.displayName, updated_at: now }
+          : f
+      ),
+      last_modified_by: user.displayName,
+      updated_at: now,
+    };
+  });
+  saveLocalCases(cases);
+  return cases;
+}
+
+// ============================================================================
+// תגיות פעולה גמישות ליומן ולמשימות (התקשרות, מייל, בירור, נסח טאבו, מכתב + הוספה)
+// ============================================================================
+const STORAGE_ACTION_TAGS_KEY = 'legal_fork_action_tags_v1';
+
+export function getActionTagsList(): string[] {
+  if (typeof window === 'undefined') return [...DEFAULT_ACTION_TAGS];
+  const raw = localStorage.getItem(STORAGE_ACTION_TAGS_KEY);
+  if (!raw) {
+    localStorage.setItem(
+      STORAGE_ACTION_TAGS_KEY,
+      JSON.stringify([...DEFAULT_ACTION_TAGS])
+    );
+    return [...DEFAULT_ACTION_TAGS];
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length > 0
+      ? parsed
+      : [...DEFAULT_ACTION_TAGS];
+  } catch {
+    return [...DEFAULT_ACTION_TAGS];
+  }
+}
+
+export function addCustomActionTag(tag: string): string[] {
+  const clean = tag.trim();
+  if (!clean) return getActionTagsList();
+  const list = getActionTagsList();
+  if (!list.includes(clean)) {
+    const next = [...list, clean];
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(STORAGE_ACTION_TAGS_KEY, JSON.stringify(next));
+    }
+    return next;
+  }
+  return list;
+}
+
+export function deleteCustomActionTag(tag: string): string[] {
+  const next = getActionTagsList().filter((t) => t !== tag);
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(STORAGE_ACTION_TAGS_KEY, JSON.stringify(next));
+  }
+  return next;
+}
+
+// ============================================================================
+// מודול אלפון משרדי חכם (Contacts & Legal Directory — גרסה 8.6)
+// 5 קטגוריות מסונכרנות אוטומטית עם החייבים, צוות המשרד, העיריות ובעלי התפקידים
+// ============================================================================
+const STORAGE_OFFICE_CONTACTS_KEY = 'legal_fork_office_contacts_v1';
+const STORAGE_CONTACT_CATEGORIES_KEY = 'legal_fork_contact_categories_v1';
+
+const DEFAULT_MANUAL_OFFICE_CONTACTS: OfficeContactItem[] = [
+  {
+    id: 'dir_staff_ron',
+    category: 'צוות המשרד (תפקידים ושיוך)',
+    name: 'עו"ד רון',
+    organization: 'משרד עו"ד (ניהול והוראות)',
+    role_or_title: 'שותף מנהל / מفرק ונאמן',
+    phone: '050-0000001',
+    email: 'ron@law-office.co.il',
+    notes: 'מתן הוראות ניהוליות ואישור דוחות לביהמ"ש',
+    updated_at: new Date().toISOString(),
+  },
+  {
+    id: 'dir_staff_eliav',
+    category: 'צוות המשרד (תפקידים ושיוך)',
+    name: 'אליאב',
+    organization: 'משרד עו"ד',
+    role_or_title: 'אחראי תיקי חברות, רשויות וחדל"פ',
+    phone: '050-0000002',
+    email: 'eliav@law-office.co.il',
+    notes: 'ניהול שוטף, חקירות, הגשות ודוחות נאמן',
+    updated_at: new Date().toISOString(),
+  },
+  {
+    id: 'dir_gov_memune',
+    category: 'הממונה על חדל"פ, בתי משפט וגופים נוספים',
+    name: 'הממונה על הליכי חדלות פירעון ושיקום כלכלי',
+    organization: 'משרד המשפטים',
+    role_or_title: 'מוקד מענה ופיקוח נאמנים',
+    phone: '*5067',
+    email: 'insolvency@justice.gov.il',
+    notes: 'הגשת דוחות תקופתיים, כתבי ערובה ובקשות ממונה',
+    updated_at: new Date().toISOString(),
+  },
+  {
+    id: 'dir_gov_rasham',
+    category: 'הממונה על חדל"פ, בתי משפט וגופים נוספים',
+    name: 'רשם החברות ושותפויות — רשות התאגידים',
+    organization: 'משרד המשפטים',
+    role_or_title: 'הפקת נסח חברה ורישום שעבודים/פירוק',
+    phone: '*5601',
+    email: 'corporations@justice.gov.il',
+    notes: 'בדיקת נסח חברה עדכני מיד עם קבלת צו מינוי',
+    updated_at: new Date().toISOString(),
+  },
+  {
+    id: 'dir_gov_taxes',
+    category: 'הממונה על חדל"פ, בתי משפט וגופים נוספים',
+    name: 'רשות המיסים — מחלקת פירוקים וכינוסים',
+    organization: 'רשות המיסים בישראל',
+    role_or_title: 'מע"מ, מס הכנסה ומיסוי מקרקעין',
+    phone: '*4954',
+    email: 'pirukim@taxes.gov.il',
+    notes: 'קבלת תדפיסי חובות, שומות ומידע על נכסים',
+    updated_at: new Date().toISOString(),
+  },
+];
+
+export function getContactCategoriesList(): string[] {
+  if (typeof window === 'undefined') return [...DEFAULT_CONTACT_CATEGORIES];
+  const raw = localStorage.getItem(STORAGE_CONTACT_CATEGORIES_KEY);
+  if (!raw) {
+    localStorage.setItem(
+      STORAGE_CONTACT_CATEGORIES_KEY,
+      JSON.stringify([...DEFAULT_CONTACT_CATEGORIES])
+    );
+    return [...DEFAULT_CONTACT_CATEGORIES];
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length > 0
+      ? parsed
+      : [...DEFAULT_CONTACT_CATEGORIES];
+  } catch {
+    return [...DEFAULT_CONTACT_CATEGORIES];
+  }
+}
+
+export function addContactCategory(name: string): string[] {
+  const clean = name.trim();
+  if (!clean) return getContactCategoriesList();
+  const list = getContactCategoriesList();
+  if (!list.includes(clean)) {
+    const next = [...list, clean];
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(
+        STORAGE_CONTACT_CATEGORIES_KEY,
+        JSON.stringify(next)
+      );
+    }
+    return next;
+  }
+  return list;
+}
+
+export function renameContactCategory(oldName: string, newName: string): string[] {
+  const clean = newName.trim();
+  if (!clean) return getContactCategoriesList();
+  const next = getContactCategoriesList().map((c) =>
+    c === oldName ? clean : c
+  );
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(STORAGE_CONTACT_CATEGORIES_KEY, JSON.stringify(next));
+    const manual = getStoredManualContacts().map((item) =>
+      item.category === oldName ? { ...item, category: clean } : item
+    );
+    localStorage.setItem(STORAGE_OFFICE_CONTACTS_KEY, JSON.stringify(manual));
+  }
+  return next;
+}
+
+export function deleteContactCategory(name: string): string[] {
+  const next = getContactCategoriesList().filter((c) => c !== name);
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(STORAGE_CONTACT_CATEGORIES_KEY, JSON.stringify(next));
+  }
+  return next;
+}
+
+function getStoredManualContacts(): OfficeContactItem[] {
+  if (typeof window === 'undefined') return DEFAULT_MANUAL_OFFICE_CONTACTS;
+  const raw = localStorage.getItem(STORAGE_OFFICE_CONTACTS_KEY);
+  if (!raw) {
+    localStorage.setItem(
+      STORAGE_OFFICE_CONTACTS_KEY,
+      JSON.stringify(DEFAULT_MANUAL_OFFICE_CONTACTS)
+    );
+    return DEFAULT_MANUAL_OFFICE_CONTACTS;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : DEFAULT_MANUAL_OFFICE_CONTACTS;
+  } catch {
+    return DEFAULT_MANUAL_OFFICE_CONTACTS;
+  }
+}
+
+export function getOfficeContacts(
+  casesInput?: CaseItem[],
+  muniInput?: MunicipalitySetting[]
+): OfficeContactItem[] {
+  const manual = getStoredManualContacts();
+  const cases = casesInput || getLocalCases();
+  const munis = muniInput || getLocalMunicipalitiesSettings();
+  const assignees = getAssigneesList();
+  const now = new Date().toISOString();
+
+  const map = new Map<string, OfficeContactItem>();
+  for (const item of manual) {
+    map.set(item.id, item);
+  }
+
+  // 1. סנכרון צוות המשרד מתוך רשימת האחראים (Assignees)
+  for (const person of assignees) {
+    const exists = Array.from(map.values()).some(
+      (c) =>
+        c.category === 'צוות המשרד (תפקידים ושיוך)' &&
+        (c.name === person || c.name.includes(person))
+    );
+    if (!exists) {
+      const id = `sync_staff_${person}`;
+      map.set(id, {
+        id,
+        category: 'צוות המשרד (תפקידים ושיוך)',
+        name: person,
+        organization: 'צוות המשרד',
+        role_or_title: 'אחראי לביצוע בתיקים',
+        phone: '',
+        email: '',
+        is_auto_synced: true,
+        updated_at: now,
+      });
+    }
+  }
+
+  // 2. סנכרון עיריות ורשויות מקומיות
+  for (const m of munis) {
+    const exists = Array.from(map.values()).some(
+      (c) =>
+        c.category === 'עיריות ורשויות מקומיות' &&
+        c.organization === m.municipality_name
+    );
+    if (!exists) {
+      const id = `sync_muni_${m.id}`;
+      map.set(id, {
+        id,
+        category: 'עיריות ורשויות מקומיות',
+        name: m.contact_person || `מחלקת גבייה — ${m.municipality_name}`,
+        organization: m.municipality_name,
+        role_or_title: 'איש קשר ומנהל גבייה ברשות',
+        phone: '',
+        email: '',
+        notes: m.standing_instructions || m.fee_tariff_description || '',
+        is_auto_synced: true,
+        updated_at: m.updated_at || now,
+      });
+    }
+  }
+
+  // 3. סנכרון חייבים וצדדים בתיקים + מייצגים/בעלי תפקידים חיצוניים מתוך התיקים
+  for (const c of cases) {
+    const debtorId = `sync_debtor_${c.id}`;
+    if (!map.has(debtorId)) {
+      map.set(debtorId, {
+        id: debtorId,
+        category: 'חייבים וצדדים בתיקים',
+        name: c.debtor_name,
+        organization: c.municipality || c.housing_project_name || c.category,
+        role_or_title: `תיק ${c.case_number || 'ללא מס׳'} ${
+          c.id_or_hp ? `• ח"פ/ת"ז: ${c.id_or_hp}` : ''
+        }`,
+        phone: '',
+        email: '',
+        related_case_id: c.id,
+        related_case_name: c.debtor_name,
+        notes: c.stage_note || c.current_stage || '',
+        is_auto_synced: true,
+        updated_at: c.updated_at || now,
+      });
+    }
+
+    if (c.representative_contact_details?.trim()) {
+      const repId = `sync_rep_${c.id}`;
+      if (!map.has(repId)) {
+        map.set(repId, {
+          id: repId,
+          category: 'משרדי עו"ד חיצוניים ובעלי תפקידים',
+          name: c.representative_contact_details.trim(),
+          organization: `מייצג בתיק ${c.debtor_name}`,
+          role_or_title: 'מייצג חברה / רו"ח / עו"ד חיצוני',
+          related_case_id: c.id,
+          related_case_name: c.debtor_name,
+          is_auto_synced: true,
+          updated_at: c.updated_at || now,
+        });
+      }
+    }
+
+    if (c.trustee_name_and_contact?.trim()) {
+      const trId = `sync_trustee_${c.id}`;
+      if (!map.has(trId)) {
+        map.set(trId, {
+          id: trId,
+          category: 'משרדי עו"ד חיצוניים ובעלי תפקידים',
+          name: c.trustee_name_and_contact.trim(),
+          organization: `תיק חדל"פ: ${c.debtor_name}`,
+          role_or_title: 'נאמן / מפרק בתיק',
+          related_case_id: c.id,
+          related_case_name: c.debtor_name,
+          is_auto_synced: true,
+          updated_at: c.updated_at || now,
+        });
+      }
+    }
+  }
+
+  return Array.from(map.values());
+}
+
+export function saveOfficeContact(
+  contact: Omit<OfficeContactItem, 'id' | 'updated_at'> & { id?: string }
+): OfficeContactItem[] {
+  const manual = getStoredManualContacts();
+  const now = new Date().toISOString();
+  const cleanId = contact.id || generateId();
+  const saved: OfficeContactItem = {
+    ...contact,
+    id: cleanId,
+    is_auto_synced: false,
+    updated_at: now,
+  };
+
+  const idx = manual.findIndex((c) => c.id === cleanId);
+  if (idx !== -1) {
+    manual[idx] = saved;
+  } else {
+    manual.unshift(saved);
+  }
+
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(STORAGE_OFFICE_CONTACTS_KEY, JSON.stringify(manual));
+  }
+
+  // אם נוסף איש צוות בקטגוריית צוות המשרד — סנכרן אותו גם לרשימת האחראים לביצוע בתיקים
+  if (
+    saved.category === 'צוות המשרד (תפקידים ושיוך)' &&
+    saved.name.trim()
+  ) {
+    addAssigneeName(saved.name.trim());
+  }
+
+  return getOfficeContacts();
+}
+
+export function deleteOfficeContact(id: string): OfficeContactItem[] {
+  const manual = getStoredManualContacts().filter((c) => c.id !== id);
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(STORAGE_OFFICE_CONTACTS_KEY, JSON.stringify(manual));
+  }
+  return getOfficeContacts();
+}
+
+// ============================================================================
+// תבנית אבני דרך אוטומטית מרגע המינוי בתיקי חברות (גרסה 8.6):
+// הגשת כתב ערובה (יעד אוטומטי 14 יום ממועד המינוי), בדיקות גופים, חקירה, מסמכים וצומת הכרעה
+// ============================================================================
+export function buildCompanyLifecycleMilestones(
+  appointmentDate?: string | null,
+  defaultAssignee = 'אליאב'
+): CaseMilestone[] {
+  const baseDate =
+    appointmentDate || new Date().toISOString().split('T')[0];
+  const bondDue = (() => {
+    const d = new Date(`${baseDate}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return baseDate;
+    d.setDate(d.getDate() + 14);
+    return d.toISOString().split('T')[0];
+  })();
+
+  return [
+    {
+      id: generateId(),
+      title: 'קבלת מינוי מהמזכירות והגשת כתב ערובה / התחייבות עצמית (יעד: 14 יום)',
+      status: 'in_progress',
+      urgency: 'דחוף מאוד',
+      planned_days: 14,
+      started_at: baseDate,
+      due_date: bondDue,
+      completed_at: null,
+      days_spent: 0,
+      assignee: defaultAssignee,
+      execution_state: 'בטיפול',
+      action_tag: 'הגשה',
+      follow_up_title:
+        'הפקת נסח חברה מרשם החברות ומשלוח דרישות לגופים פיננסיים, רשות המיסים וביטוח/פנסיה',
+    },
+    {
+      id: generateId(),
+      title:
+        'בדיקות מול גופים: נסח חברה, גופים פיננסיים, רשות המיסים, ביטוח ופנסיה',
+      status: 'upcoming',
+      urgency: 'גבוהה',
+      planned_days: 10,
+      started_at: null,
+      due_date: null,
+      completed_at: null,
+      days_spent: 0,
+      assignee: defaultAssignee,
+      execution_state: 'בטיפול',
+      action_tag: 'מכתב',
+      follow_up_title:
+        'פנייה למייצג/בעלי מניות, דרישת מסמכים ותיאום מועד חקירה',
+    },
+    {
+      id: generateId(),
+      title: 'חקירה ותיאום מועדים + קבלת מסמכים / השלמת מסמכים',
+      status: 'upcoming',
+      urgency: 'גבוהה',
+      planned_days: 14,
+      started_at: null,
+      due_date: null,
+      completed_at: null,
+      days_spent: 0,
+      assignee: defaultAssignee,
+      execution_state: 'בטיפול',
+      action_tag: 'פגישה/חקירה',
+      follow_up_title: 'עיון במסמכים וכתיבת טיוטת דוח נאמן לביהמ"ש',
+    },
+    {
+      id: generateId(),
+      title: 'עיון במסמכים וכתיבת טיוטת דוח נאמן לאישור מנהל/רון',
+      status: 'upcoming',
+      urgency: 'גבוהה',
+      planned_days: 10,
+      started_at: null,
+      due_date: null,
+      completed_at: null,
+      days_spent: 0,
+      assignee: defaultAssignee,
+      execution_state: 'בטיפול',
+      action_tag: 'הגשה',
+      follow_up_title:
+        'צומת הכרעה והגשת דוח מסכם לביהמ"ש: המלצה לחיסול או המשך לפירוק / שיקום',
+    },
+    {
+      id: generateId(),
+      title:
+        'צומת הכרעה בתיק חברה: המלצה לחיסול מול המשך לפירוק / שיקום',
+      status: 'upcoming',
+      urgency: 'גבוהה',
+      planned_days: 7,
+      started_at: null,
+      due_date: null,
+      completed_at: null,
+      days_spent: 0,
+      assignee: 'רון',
+      is_manager_instruction: true,
+      execution_state: 'בטיפול',
+      action_tag: 'הגשה',
+    },
+  ];
+}
+
+
 
 
 

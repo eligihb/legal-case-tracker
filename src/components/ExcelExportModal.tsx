@@ -187,6 +187,12 @@ export const AVAILABLE_COLUMNS: ColumnDef[] = [
     getValue: (c) => c.notes || '',
   },
   {
+    key: 'assigned_to',
+    label: 'אחראי לביצוע',
+    width: 18,
+    getValue: (c) => c.assigned_to || '',
+  },
+  {
     key: 'last_modified_by',
     label: 'עודכן ע"י',
     width: 18,
@@ -847,5 +853,342 @@ export function exportSingleCaseToXlsx(
   }
 
   const safeDebtor = caseItem.debtor_name.replace(/[\\/?*[\]:]/g, '_');
+  const conductData = buildConductReportSummaryAndRows([caseItem]);
+  if (conductData.rows.length > 0) {
+    sheets.push({
+      name: 'דוח בקרת התנהלות ואיחורים',
+      headers: [
+        'סוג מסמך',
+        'נושא ההגשה / תגובה',
+        'החלטת מקור וממתי',
+        'תגובה לאיזו בקשה / תיאור',
+        'תאריך יעד מקורי',
+        'בקשות ארכה (כמות / ימים)',
+        'תאריך יעד מעודכן',
+        'תאריך הגשה בפועל',
+        'סטטוס עמידה ופער ימים',
+        'החלטות התראה על אי-הגשה',
+        'אחראי לביצוע',
+        'הערכת זמן כתיבה',
+      ],
+      columnWidths: [14, 30, 26, 28, 16, 24, 16, 16, 24, 18, 16, 18],
+      rows: conductData.rows.map((r) => [
+        r.documentType,
+        r.subject,
+        r.sourceDecision,
+        r.responseToRequest,
+        formatDateHe(r.originalDueDate),
+        `${r.extensionsCount} בקשות (${r.totalExtensionDays} ימים)${
+          r.extensionsBreakdown ? ` — ${r.extensionsBreakdown}` : ''
+        }`,
+        formatDateHe(r.currentDueDate),
+        r.actualSubmittedDate ? formatDateHe(r.actualSubmittedDate) : 'טרם הוגש',
+        r.statusLabel,
+        r.lateWarningDecisionsCount,
+        r.assignee,
+        r.estimatedWritingTime,
+      ]),
+    });
+  }
   downloadXlsxFile(`תיק_${safeDebtor}.xlsx`, sheets);
+}
+
+// ============================================================================
+// מנוע דוח בקרת התנהלות ואיחורים (להפקת לקחים ושיפור — גרסה 8.5)
+// ============================================================================
+export interface ConductReportRow {
+  id: string;
+  caseId: string;
+  debtorName: string;
+  caseNumber: string;
+  category: string;
+  documentType: string;
+  subject: string;
+  sourceDecision: string;
+  responseToRequest: string;
+  originalDueDate: string | null;
+  currentDueDate: string | null;
+  actualSubmittedDate: string | null;
+  isSubmitted: boolean;
+  extensionsCount: number;
+  totalExtensionDays: number;
+  extensionsBreakdown: string;
+  lateWarningDecisionsCount: number;
+  daysLateVsDue: number;
+  daysGapVsOriginal: number;
+  isLate: boolean;
+  statusLabel: string;
+  assignee: string;
+  estimatedWritingTime: string;
+}
+
+export interface ConductReportSummary {
+  totalSubmissions: number;
+  lateSubmissionsCount: number;
+  onTimeSubmissionsCount: number;
+  totalCumulativeLateDays: number;
+  totalExtensionRequestsCount: number;
+  totalExtensionDaysGranted: number;
+  totalLateWarningDecisions: number;
+  onTimeRatePercent: number;
+  rows: ConductReportRow[];
+}
+
+function diffDaysBetweenDates(dateA?: string | null, dateB?: string | null): number {
+  if (!dateA || !dateB) return 0;
+  const a = new Date(`${dateA}T00:00:00`);
+  const b = new Date(`${dateB}T00:00:00`);
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return 0;
+  return Math.round((a.getTime() - b.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+export function buildConductReportSummaryAndRows(
+  cases: CaseItem[]
+): ConductReportSummary {
+  const today = new Date().toISOString().split('T')[0];
+  const rows: ConductReportRow[] = [];
+
+  for (const c of cases) {
+    const subs = c.company_submissions || [];
+    if (subs.length > 0) {
+      for (const s of subs) {
+        const extReqs = s.extension_requests || [];
+        const extCount =
+          Number(s.extensions_count) || extReqs.length || 0;
+        const extDays =
+          Number(s.total_extension_days) ||
+          extReqs.reduce(
+            (sum, r) =>
+              sum + (Number(r.days_approved) || Number(r.days_requested) || 0),
+            0
+          );
+        const extBreakdown = extReqs
+          .map(
+            (r, idx) =>
+              `ארכה #${idx + 1}: התבקשו ${r.days_requested} ימים (אושרו ${r.days_approved} ימים)`
+          )
+          .join(' | ');
+
+        const refCompareDate =
+          s.is_submitted && s.submitted_at ? s.submitted_at : today;
+        const effectiveDue = s.due_date || s.original_due_date || null;
+        const rawLate = effectiveDue
+          ? diffDaysBetweenDates(refCompareDate, effectiveDue)
+          : 0;
+        const daysLateVsDue = Math.max(0, rawLate);
+        const daysGapVsOriginal = s.original_due_date
+          ? diffDaysBetweenDates(refCompareDate, s.original_due_date)
+          : daysLateVsDue;
+        const isLate = daysLateVsDue > 0;
+
+        let statusLabel = 'במועד ✓';
+        if (s.is_submitted) {
+          statusLabel = isLate
+            ? `הוגש באיחור (${daysLateVsDue} ימים)`
+            : 'הוגש במועד ✓';
+        } else {
+          statusLabel = isLate
+            ? `באיחור (${daysLateVsDue} ימים!)`
+            : 'ממתין להגשה (במועד)';
+        }
+
+        rows.push({
+          id: s.id,
+          caseId: c.id,
+          debtorName: c.debtor_name,
+          caseNumber: c.case_number || 'ללא מספר',
+          category: c.category,
+          documentType: s.document_type || 'תגובה',
+          subject: s.title || 'הגשה לביהמ"ש',
+          sourceDecision: `${s.related_decision_ref || 'החלטת ביהמ"ש'}${
+            s.related_decision_date
+              ? ` (${formatDateHe(s.related_decision_date)})`
+              : ''
+          }`,
+          responseToRequest:
+            s.response_to_request || s.short_description || '—',
+          originalDueDate: s.original_due_date || s.due_date || null,
+          currentDueDate: s.due_date || s.original_due_date || null,
+          actualSubmittedDate: s.is_submitted
+            ? s.submitted_at || s.due_date || today
+            : null,
+          isSubmitted: Boolean(s.is_submitted),
+          extensionsCount: extCount,
+          totalExtensionDays: extDays,
+          extensionsBreakdown: extBreakdown,
+          lateWarningDecisionsCount:
+            Number(s.late_warning_decisions_count) || 0,
+          daysLateVsDue,
+          daysGapVsOriginal,
+          isLate,
+          statusLabel,
+          assignee: s.assignee || c.assigned_to || 'לא שויך',
+          estimatedWritingTime: s.estimated_writing_time || '—',
+        });
+      }
+    } else if (
+      c.next_due_date ||
+      (Number(c.extensions_count) || 0) > 0 ||
+      (Number(c.late_warning_decisions_count) || 0) > 0
+    ) {
+      // גיבוי חכם לתיקים שבהם טרם הוזנו שורות הגשה פרטניות אך יש מועד יעד או ארכות
+      const rawLate = c.next_due_date
+        ? diffDaysBetweenDates(today, c.next_due_date)
+        : 0;
+      const daysLateVsDue = Math.max(0, rawLate);
+      const isLate = daysLateVsDue > 0;
+      const extCount = Number(c.extensions_count) || 0;
+      const extDays = Number(c.total_extension_days) || extCount * 7;
+
+      rows.push({
+        id: `case_main_${c.id}`,
+        caseId: c.id,
+        debtorName: c.debtor_name,
+        caseNumber: c.case_number || 'ללא מספר',
+        category: c.category,
+        documentType:
+          c.next_action_type === 'דו"ח עדכון נאמן'
+            ? 'דוח נאמן'
+            : c.next_action_type === 'תגובה'
+            ? 'תגובה'
+            : 'בקשה',
+        subject:
+          c.next_action_description ||
+          c.current_stage ||
+          c.next_action_type ||
+          'פעולה בתיק',
+        sourceDecision: c.postponed_reason || 'מועד יעד בתיק',
+        responseToRequest: c.stage_note || c.notes || '—',
+        originalDueDate: c.next_due_date || null,
+        currentDueDate: c.next_due_date || null,
+        actualSubmittedDate: null,
+        isSubmitted: false,
+        extensionsCount: extCount,
+        totalExtensionDays: extDays,
+        extensionsBreakdown:
+          extCount > 0 ? `${extCount} ארכות/דחיות מתועדות בתיק` : '',
+        lateWarningDecisionsCount:
+          Number(c.late_warning_decisions_count) || 0,
+        daysLateVsDue,
+        daysGapVsOriginal: daysLateVsDue,
+        isLate,
+        statusLabel: isLate
+          ? `באיחור (${daysLateVsDue} ימים!)`
+          : 'במועד ✓',
+        assignee: c.assigned_to || 'לא שויך',
+        estimatedWritingTime: c.prep_days_needed
+          ? `${c.prep_days_needed} ימי היערכות`
+          : '—',
+      });
+    }
+  }
+
+  const totalSubmissions = rows.length;
+  const lateSubmissionsCount = rows.filter((r) => r.isLate).length;
+  const onTimeSubmissionsCount = totalSubmissions - lateSubmissionsCount;
+  const totalCumulativeLateDays = rows.reduce(
+    (sum, r) => sum + r.daysLateVsDue,
+    0
+  );
+  const totalExtensionRequestsCount = rows.reduce(
+    (sum, r) => sum + r.extensionsCount,
+    0
+  );
+  const totalExtensionDaysGranted = rows.reduce(
+    (sum, r) => sum + r.totalExtensionDays,
+    0
+  );
+  const totalLateWarningDecisions = rows.reduce(
+    (sum, r) => sum + r.lateWarningDecisionsCount,
+    0
+  );
+  const onTimeRatePercent =
+    totalSubmissions > 0
+      ? Math.round((onTimeSubmissionsCount / totalSubmissions) * 100)
+      : 100;
+
+  return {
+    totalSubmissions,
+    lateSubmissionsCount,
+    onTimeSubmissionsCount,
+    totalCumulativeLateDays,
+    totalExtensionRequestsCount,
+    totalExtensionDaysGranted,
+    totalLateWarningDecisions,
+    onTimeRatePercent,
+    rows,
+  };
+}
+
+export function exportConductAndDelayReportToXlsx(
+  cases: CaseItem[],
+  reportTitle = 'דוח_בקרת_התנהלות_ואיחורים'
+): void {
+  const summary = buildConductReportSummaryAndRows(cases);
+  const sheets: XlsxSheetData[] = [
+    {
+      name: 'טבלה משווה להפקת לקחים',
+      headers: [
+        'שם התיק / חברה',
+        'מספר תיק',
+        'קטגוריה',
+        'סוג מסמך',
+        'נושא ההגשה',
+        'החלטת מקור וממתי',
+        'תגובה לאיזו בקשה / תיאור קצר',
+        'תאריך יעד מקורי',
+        'בקשות ארכה (כמות וימים)',
+        'תאריך יעד מעודכן',
+        'תאריך הגשה בפועל',
+        'פער ימים (במועד / איחור)',
+        'מונה החלטות התראה על אי-הגשה',
+        'אחראי לביצוע',
+        'הערכת זמן כתיבה',
+      ],
+      columnWidths: [
+        26, 18, 16, 14, 30, 26, 28, 16, 26, 16, 16, 24, 18, 16, 18,
+      ],
+      rows: summary.rows.map((r) => [
+        r.debtorName,
+        r.caseNumber,
+        r.category,
+        r.documentType,
+        r.subject,
+        r.sourceDecision,
+        r.responseToRequest,
+        formatDateHe(r.originalDueDate),
+        `${r.extensionsCount} בקשות / ${r.totalExtensionDays} ימי ארכה${
+          r.extensionsBreakdown ? ` (${r.extensionsBreakdown})` : ''
+        }`,
+        formatDateHe(r.currentDueDate),
+        r.actualSubmittedDate ? formatDateHe(r.actualSubmittedDate) : 'טרם הוגש',
+        r.statusLabel,
+        r.lateWarningDecisionsCount,
+        r.assignee,
+        r.estimatedWritingTime,
+      ]),
+    },
+    {
+      name: 'סיכום מדדי איחורים וארכות',
+      headers: ['מדד בקרת התנהלות', 'ערך'],
+      columnWidths: [40, 24],
+      rows: [
+        ['סה"כ הגשות, תגובות ודוחות נאמן בבקרה', summary.totalSubmissions],
+        ['הגשות ותגובות במועד', summary.onTimeSubmissionsCount],
+        ['הגשות ותגובות באיחור', summary.lateSubmissionsCount],
+        ['שיעור עמידה במועדים (%)', `${summary.onTimeRatePercent}%`],
+        ['סך ימי איחור מצטברים', summary.totalCumulativeLateDays],
+        ['סה"כ בקשות ארכה שהתבקשו', summary.totalExtensionRequestsCount],
+        ['סה"כ ימי ארכה שניתנו', summary.totalExtensionDaysGranted],
+        [
+          'סה"כ החלטות התראה שיפוטיות על אי-הגשה במועד',
+          summary.totalLateWarningDecisions,
+        ],
+      ],
+    },
+  ];
+
+  const todayStr = new Date().toISOString().split('T')[0];
+  const cleanTitle = reportTitle.replace(/[\\/?*[\]:\s]+/g, '_');
+  downloadXlsxFile(`${cleanTitle}_${todayStr}.xlsx`, sheets);
 }
