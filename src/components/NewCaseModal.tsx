@@ -395,6 +395,7 @@ export default function NewCaseModal({
       const created = await createCaseItem({
         debtor_name: debtorName.trim(),
         subject: subject.trim(),
+        stage_note: subject.trim(),
         id_or_hp: idOrHp.trim(),
         case_number: caseNumber.trim(),
         gush_helka: gushHelka.trim() || propertyDetails.trim(),
@@ -491,11 +492,8 @@ export default function NewCaseModal({
           <div>
             <h2 className="text-lg font-extrabold flex items-center gap-2">
               <Zap className="w-5 h-5 text-blue-400" />
-              <span>הזנה מהירה / תיק חדש (ב-10 שניות — גם ללא מספר תיק)</span>
+              <span>פתיחת תיק חדש (גם ללא מספר תיק)</span>
             </h2>
-            <p className="text-xs text-slate-300 mt-0.5">
-              הזן שם לקוח/עניין, נושא וקטגוריה לפתיחה מיידית. מספר תיק ושדות מתקדמים הם רשות וניתן להשלים בהמשך.
-            </p>
           </div>
           <button
             type="button"
@@ -565,7 +563,7 @@ export default function NewCaseModal({
 
               <div>
                 <label className="block text-sm font-extrabold text-slate-900 mb-1">
-                  3. נושא התיק / מהות העניין *
+                  3. השלב הפעיל / הערת שלב פתיחה
                 </label>
                 <input
                   type="text"
@@ -1204,7 +1202,7 @@ export default function NewCaseModal({
               disabled={submitting || !debtorName.trim()}
               className="px-6 py-2.5 rounded-xl text-sm font-extrabold bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white shadow-xs transition"
             >
-              {submitting ? 'שומר תיק...' : 'שמור ופתח תיק'}
+              {submitting ? 'שומר תיק...' : 'פתיחת תיק חדש'}
             </button>
           </div>
         </form>

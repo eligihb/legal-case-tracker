@@ -38,6 +38,10 @@ import {
   Lock,
   Unlock,
   Check,
+  HelpCircle,
+  Moon,
+  ChevronDown,
+  Pencil,
 } from 'lucide-react';
 import {
   CASE_CATEGORIES,
@@ -139,6 +143,10 @@ export default function DashboardPage() {
   const [isSmartPasteOpen, setIsSmartPasteOpen] = useState(false);
   const [globalEditMode, setGlobalEditMode] = useState<boolean>(true);
   const [globalSaveFlash, setGlobalSaveFlash] = useState<boolean>(false);
+  const [systemEditMode, setSystemEditMode] = useState<boolean>(false);
+  const [userMenuOpen, setUserMenuOpen] = useState<boolean>(false);
+  const [showSmartPasteHint, setShowSmartPasteHint] = useState<boolean>(false);
+  const [selectedCaseIds, setSelectedCaseIds] = useState<string[]>([]);
   const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
   const [isMuniModalOpen, setIsMuniModalOpen] = useState(false);
   const [isUsersModalOpen, setIsUsersModalOpen] = useState(false);
@@ -418,6 +426,14 @@ export default function DashboardPage() {
     );
   };
 
+  const isDormantCase = (c: CaseItem) => {
+    if (c.status === 'סגור' || c.is_archived) return false;
+    if (!c.updated_at) return false;
+    const diffMs = Date.now() - new Date(c.updated_at).getTime();
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    return diffDays >= 30;
+  };
+
   // =========================================================================
   // חישוב מדדי מסך הבית (Visual Command Center Metrics)
   // =========================================================================
@@ -467,6 +483,7 @@ export default function DashboardPage() {
       isReminderTodayOrWeekCase
     );
     const netHaMishpatCases = activeCasesAllDomains.filter(isNetHaMishpatCase);
+    const dormantCases = activeCasesAllDomains.filter(isDormantCase);
 
     // פילוח שלבי עבודה (Workflow Stages) לתרשים העומס בתחתית מסך הבית
     const stageBuckets: ('התראה' | 'מסירה' | 'הגשה' | 'דיון' | 'הסדר/סגירה')[] =
@@ -539,6 +556,8 @@ export default function DashboardPage() {
       netHaMishpatPct: Math.round(
         (netHaMishpatCases.length / totalCasesCount) * 100
       ),
+      dormantCases,
+      dormantPct: Math.round((dormantCases.length / totalCasesCount) * 100),
       byStage,
       delayedCases,
       remindersWeek,
@@ -560,6 +579,7 @@ export default function DashboardPage() {
       reminders_week: homeMetrics.remindersWeek,
       court_submissions: homeMetrics.courtSubmissions,
       net_hamishpat: homeMetrics.netHaMishpatCases,
+      dormant_cases: homeMetrics.dormantCases,
       delayed_cases: homeMetrics.delayedCases,
       legal_fees: activeCasesAllDomains,
     }),
@@ -649,6 +669,8 @@ export default function DashboardPage() {
         )
           return false;
         if (kpiQuickFilter === 'net_hamishpat' && !isNetHaMishpatCase(c))
+          return false;
+        if (kpiQuickFilter === 'dormant_cases' && !isDormantCase(c))
           return false;
         if (kpiQuickFilter === 'delayed_cases' && !isDelayedCase(c))
           return false;
@@ -944,6 +966,11 @@ export default function DashboardPage() {
       subtitle:
         'תיקים הממתינים להחלטת שופט/רשם, הוגשה בקשה בנט המשפט, נדרשת תגובת צד שכנגד או התקבלה החלטה',
     },
+    dormant_cases: {
+      title: 'תיקים רדומים (ללא תנועה 30+ יום)',
+      subtitle:
+        'תיקים פעילים שלא בוצע בהם עדכון, תרשומת או שינוי שלב במשך 30 ימים ומעלה',
+    },
     delayed_cases: {
       title: 'תיקים באיחור / חריגת מועד',
       subtitle: 'תיקים שחרגו מתאריך היעד, חלפו 30 יום מאישור מסירה או צברו דחיות חוזרות',
@@ -982,6 +1009,16 @@ export default function DashboardPage() {
       ? 'כל התיקים במערכת'
       : CATEGORY_LABELS[casesViewCategory].title;
 
+  const currentHour = new Date().getHours();
+  const timeGreeting =
+    currentHour >= 5 && currentHour < 12
+      ? 'בוקר טוב'
+      : currentHour >= 12 && currentHour < 17
+      ? 'צהריים טובים'
+      : currentHour >= 17 && currentHour < 21
+      ? 'ערב טוב'
+      : 'לילה טוב';
+
   return (
     <>
       <div
@@ -990,137 +1027,82 @@ export default function DashboardPage() {
         className="h-dvh flex flex-col overflow-hidden bg-[#F8FAFC] text-slate-900 transition-all duration-200"
       >
         {/* ================================================================== */}
-        {/* רצועה 1 — סרגל כלים עליון קבוע ונגיש בכל מסך (sticky top-0 z-40)   */}
-        {/* שורת חיפוש חכמה | + תיק חדש | קליטה חכמה (מייל / נט המשפט) |       */}
-        {/* שמירה | מצב עריכה / צפייה | הדפסה / PDF | ייצוא לאקסל | דוחות | ניהול */}
+        {/* סרגל עליון דביק (Sticky Top Bar — sticky top-0 z-40):               */}
+        {/* כפתור מסך הבית | כפתור חזרה | ברכה דינמית לפי השעה + שם משתמש (תפריט) | */}
+        {/* כפתור גיבוי והרשאות | מתג מצב עריכת מערכת: כבוי / פעיל              */}
         {/* ================================================================== */}
         <header className="sticky top-0 z-40 shrink-0 bg-[#0F172A] text-white border-b border-slate-800 shadow-md">
           <div className="max-w-[1600px] mx-auto px-3 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-2">
-            {/* צד ימין: מסך הבית + חזרה + שורת חיפוש חכם רחבה עם זכוכית מגדלת בלבד */}
-            <div className="flex items-center gap-2 flex-1 min-w-[260px]">
+            {/* צד ימין: מסך הבית + חזרה + לוגו */}
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={handleGoHome}
                 title="מסך הבית — מבט-על ניהולי"
-                className={`px-3 py-1.5 rounded-xl font-extrabold text-xs sm:text-sm flex items-center gap-1.5 border shrink-0 transition ${
+                className={`px-3.5 py-1.5 rounded-xl font-extrabold text-xs sm:text-sm flex items-center gap-1.5 border shrink-0 transition ${
                   screenMode === 'home'
                     ? 'bg-blue-600 text-white border-blue-400 shadow-xs'
                     : 'bg-slate-800 hover:bg-blue-600 text-white border-slate-700'
                 }`}
               >
                 <Home className="w-4 h-4 shrink-0" />
-                <span className="hidden sm:inline">מסך הבית</span>
+                <span>מסך הבית</span>
               </button>
 
-              {screenMode !== 'home' && (
-                <button
-                  type="button"
-                  onClick={handleGoBack}
-                  title="חזרה למסך קודם"
-                  className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-extrabold flex items-center gap-1 shrink-0 transition"
-                >
-                  <ArrowRight className="w-4 h-4 text-sky-400 shrink-0" />
-                  <span className="hidden md:inline">חזרה</span>
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={handleGoBack}
+                title="חזרה למסך קודם"
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs sm:text-sm font-extrabold flex items-center gap-1.5 shrink-0 transition"
+              >
+                <ArrowRight className="w-4 h-4 text-sky-400 shrink-0" />
+                <span>חזרה</span>
+              </button>
 
-              {/* שורת חיפוש חכמה רחבה עם אייקון זכוכית מגדלת בלבד */}
-              <div className="relative flex-1 max-w-md">
-                <Search className="w-4 h-4 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
-                  type="text"
-                  aria-label="חיפוש לפי שם, ת״ז, מספר תיק או נושא"
-                  value={homeSearchQuery}
-                  onChange={(e) => setHomeSearchQuery(e.target.value)}
-                  placeholder="חיפוש לפי שם, ת״ז, מספר תיק או נושא..."
-                  className="w-full pr-10 pl-8 py-1.5 text-xs sm:text-sm rounded-xl bg-white text-slate-900 placeholder-slate-400 font-bold shadow-inner border border-slate-200 focus:border-blue-400 outline-none"
-                />
-                {homeSearchQuery && (
-                  <button
-                    type="button"
-                    onClick={() => setHomeSearchQuery('')}
-                    className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-extrabold text-slate-400 hover:text-slate-700"
-                  >
-                    ✕
-                  </button>
-                )}
-
-                {/* רשימת תוצאות קופצת שלחיצה עליה פותחת מיד את כרטיס התיק */}
-                {homeSearchQuery.trim() !== '' && (
-                  <div className="absolute right-0 left-0 top-full mt-1.5 bg-white text-slate-900 rounded-2xl shadow-2xl border border-slate-200 z-50 max-h-80 overflow-y-auto divide-y divide-slate-100">
-                    {homeSearchResults.length === 0 ? (
-                      <div className="p-4 text-center text-xs font-bold text-slate-500">
-                        לא נמצאו תיקים התואמים ל-&quot;{homeSearchQuery}&quot;
-                      </div>
-                    ) : (
-                      homeSearchResults.map((c) => (
-                        <button
-                          key={c.id}
-                          type="button"
-                          onClick={() => {
-                            setHomeSearchQuery('');
-                            openCaseDrawer(c);
-                          }}
-                          className="w-full p-3 hover:bg-blue-50 text-right flex items-center justify-between gap-2 transition"
-                        >
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="px-2 py-0.5 rounded text-[11px] font-extrabold bg-blue-100 text-blue-900">
-                                {c.category}
-                              </span>
-                              <span className="font-extrabold text-slate-900 text-sm">
-                                {c.debtor_name}
-                              </span>
-                              {c.subject && (
-                                <span className="text-xs text-slate-600 font-bold">
-                                  • {c.subject}
-                                </span>
-                              )}
-                              {c.case_number ? (
-                                <span className="text-xs font-mono font-bold text-slate-700">
-                                  ({c.case_number})
-                                </span>
-                              ) : (
-                                <span className="text-[11px] text-amber-700 font-bold">
-                                  (ללא מס׳ תיק)
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          <span className="px-2.5 py-1 rounded-lg bg-[#0F172A] text-white text-xs font-extrabold shrink-0">
-                            פתח תיק ➔
-                          </span>
-                        </button>
-                      ))
-                    )}
-                  </div>
-                )}
+              <div className="hidden md:flex items-center gap-2 mr-1">
+                <div className="w-7 h-7 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center">
+                  <Scale className="w-4 h-4 text-amber-400" />
+                </div>
+                <span className="text-sm font-extrabold text-white">
+                  מגדלור ניהולי
+                </span>
+                <span className="text-[11px] px-2 py-0.5 rounded-md font-extrabold font-mono bg-amber-400/20 text-amber-300 border border-amber-400/40">
+                  v{APP_VERSION}
+                </span>
               </div>
             </div>
 
-            {/* מרכז ושמאל: סרגל הפעולות הקבוע בכל מסך */}
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {/* 1. כפתור + תיק חדש */}
+            {/* צד שמאל: מתג מצב עריכת מערכת: כבוי / פעיל | גיבוי והרשאות | הדפסה / אקסל | ברכה דינמית + שם משתמש */}
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+              {/* מתג מצב עריכת מערכת: כבוי / פעיל (Live Admin Edit Mode) */}
               <button
                 type="button"
-                onClick={() => setIsNewModalOpen(true)}
-                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-400/40 font-extrabold text-xs flex items-center gap-1.5 shadow-xs transition"
+                onClick={() => setSystemEditMode((prev) => !prev)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 border transition ${
+                  systemEditMode
+                    ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-xs'
+                    : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                }`}
+                title="מצב עריכת מערכת חי בהקשר — מציג כפתורי עריכה (✏️), סדר (↑↓), מחיקה (🗑️) והוספה (+) ליד שלבים ושדות"
               >
-                <Plus className="w-3.5 h-3.5 shrink-0" />
-                <span>+ תיק חדש</span>
+                <Pencil className="w-3.5 h-3.5 shrink-0" />
+                <span>
+                  מצב עריכת מערכת: {systemEditMode ? 'פעיל ✏️' : 'כבוי'}
+                </span>
               </button>
 
-              {/* 2. כפתור קליטה חכמה (מייל / נט המשפט) */}
+              {/* כפתור גיבוי והרשאות */}
               <button
                 type="button"
-                onClick={() => setIsSmartPasteOpen(true)}
-                className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white border border-blue-400/40 font-extrabold text-xs flex items-center gap-1.5 shadow-xs transition"
+                onClick={() => setIsSettingsModalOpen(true)}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/40 text-xs font-extrabold flex items-center gap-1.5 transition"
+                title="גיבוי מלא (JSON), שחזור בטוח והרשאות"
               >
-                <ClipboardPaste className="w-3.5 h-3.5 shrink-0" />
-                <span>קליטה חכמה (מייל / נט המשפט)</span>
+                <ShieldCheck className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span>גיבוי והרשאות</span>
               </button>
 
-              {/* 3. כפתור שמירה (Save) עם חיווי "נשמר ✓" */}
+              {/* כפתור שמירה מהירה */}
               <button
                 type="button"
                 onClick={async () => {
@@ -1129,12 +1111,12 @@ export default function DashboardPage() {
                   setGlobalSaveFlash(true);
                   setTimeout(() => setGlobalSaveFlash(false), 2200);
                 }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 border transition ${
+                className={`px-2.5 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1 border transition ${
                   globalSaveFlash
-                    ? 'bg-emerald-500 text-slate-950 border-emerald-300 shadow-xs'
-                    : 'bg-slate-800 hover:bg-slate-700 text-white border-slate-600'
+                    ? 'bg-emerald-500 text-slate-950 border-emerald-300'
+                    : 'bg-slate-800 hover:bg-slate-700 text-white border-slate-700'
                 }`}
-                title="שמירה מיידית של כל השינויים ב-LocalStorage"
+                title="שמירה מיידית"
               >
                 {globalSaveFlash ? (
                   <>
@@ -1144,47 +1126,22 @@ export default function DashboardPage() {
                 ) : (
                   <>
                     <Save className="w-3.5 h-3.5 text-sky-400" />
-                    <span>שמירה</span>
+                    <span className="hidden sm:inline">שמירה</span>
                   </>
                 )}
               </button>
 
-              {/* 4. כפתור מצב עריכה / צפייה (Edit Mode Toggle) */}
-              <button
-                type="button"
-                onClick={() => setGlobalEditMode((prev) => !prev)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 border transition ${
-                  globalEditMode
-                    ? 'bg-slate-800 hover:bg-slate-700 text-emerald-300 border-emerald-500/40'
-                    : 'bg-amber-500 text-slate-950 border-amber-300'
-                }`}
-                title="מעבר מהיר בין מצב עריכה פתוח למצב צפייה (נעול)"
-              >
-                {globalEditMode ? (
-                  <>
-                    <Unlock className="w-3.5 h-3.5" />
-                    <span>מצב עריכה</span>
-                  </>
-                ) : (
-                  <>
-                    <Lock className="w-3.5 h-3.5" />
-                    <span>מצב צפייה</span>
-                  </>
-                )}
-              </button>
-
-              {/* 5. כפתור הדפסה / PDF */}
+              {/* הדפסה / PDF וייצוא לאקסל */}
               <button
                 type="button"
                 onClick={() => window.print()}
-                className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-600 text-xs font-extrabold flex items-center gap-1.5 transition"
-                title="הדפסת טבלת סיכום נתונים נקייה בשחור-לבן / PDF"
+                className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700 text-xs font-extrabold flex items-center gap-1 transition"
+                title="הדפסת טבלת סיכום בשחור-לבן / PDF"
               >
                 <Printer className="w-3.5 h-3.5 shrink-0" />
-                <span>הדפסה / PDF</span>
+                <span className="hidden lg:inline">הדפסה / PDF</span>
               </button>
 
-              {/* 6. כפתור ייצוא לאקסל */}
               {canExportAndBackup && (
                 <button
                   type="button"
@@ -1196,62 +1153,77 @@ export default function DashboardPage() {
                       currentScreenTitle
                     )
                   }
-                  className="px-3 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white border border-emerald-500/40 text-xs font-extrabold flex items-center gap-1.5 transition"
-                  title="ייצוא מהיר של המסך הנוכחי לקובץ אקסל (.xlsx)"
+                  className="px-2.5 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white border border-emerald-500/40 text-xs font-extrabold flex items-center gap-1 transition"
+                  title="ייצוא המסך הנוכחי לאקסל (.xlsx)"
                 >
                   <FileSpreadsheet className="w-3.5 h-3.5 shrink-0" />
-                  <span>ייצוא לאקסל</span>
+                  <span className="hidden lg:inline">אקסל</span>
                 </button>
               )}
 
-              {/* 7. כפתור דוחות וגרפים */}
-              <button
-                type="button"
-                onClick={() => setIsReportsModalOpen(true)}
-                className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white border border-indigo-400/40 text-xs font-extrabold flex items-center gap-1.5 shadow-xs transition"
-              >
-                <BarChart3 className="w-3.5 h-3.5 text-sky-200 shrink-0" />
-                <span>דוחות וגרפים</span>
-              </button>
-
-              {/* ברכת שלום + שם משתמש + ניהול */}
-              <div className="inline-flex items-center rounded-xl bg-slate-800 border border-slate-700 overflow-hidden">
+              {/* ברכה דינמית לפי השעה + שם משתמש (לחיצה פותחת תפריט עם החלפת משתמש והתנתקות) */}
+              <div className="relative">
                 <button
                   type="button"
-                  onClick={handleToggleRoleQuick}
-                  title="לחץ להחלפה מהירה בין תצוגת מנהל לעובד"
-                  className="px-2 py-1.5 text-xs font-extrabold text-slate-200 hover:text-white flex items-center gap-1 transition"
+                  onClick={() => setUserMenuOpen((prev) => !prev)}
+                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-extrabold text-slate-100 flex items-center gap-1.5 transition"
                 >
                   <User className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-                  <span className="hidden xl:inline">
-                    שלום, {currentUser.displayName}
+                  <span>
+                    {timeGreeting}, {currentUser.displayName}
                   </span>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
                 </button>
-                <button
-                  type="button"
-                  onClick={handleLogout}
-                  title="התנתקות"
-                  className="px-2 py-1.5 bg-slate-900/60 hover:bg-red-950/70 text-slate-400 hover:text-red-300 border-r border-slate-700 transition"
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                </button>
-              </div>
 
-              <button
-                type="button"
-                onClick={() => setIsSettingsModalOpen(true)}
-                className="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/40 text-xs font-extrabold flex items-center gap-1 transition"
-                title="ניהול מערכת, הרשאות, גיבוי ושחזור"
-              >
-                <ShieldCheck className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                <span>ניהול</span>
-              </button>
+                {userMenuOpen && (
+                  <div className="absolute left-0 top-full mt-1.5 w-52 bg-white text-slate-900 rounded-xl shadow-2xl border border-slate-200 py-1.5 z-50 text-xs font-extrabold">
+                    <div className="px-3 py-1.5 border-b border-slate-100 text-[11px] text-slate-500">
+                      מחובר כעת: <strong className="text-slate-900">{currentUser.displayName}</strong> ({currentUser.role === 'admin' ? 'מנהל' : 'עובד'})
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUserMenuOpen(false);
+                        handleToggleRoleQuick();
+                      }}
+                      className="w-full px-3 py-2 text-right hover:bg-slate-100 flex items-center gap-2 text-slate-800"
+                    >
+                      <User className="w-3.5 h-3.5 text-blue-600" />
+                      <span>
+                        החלפת משתמש ({currentUser.role === 'admin' ? 'לעובד' : 'למנהל'})
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUserMenuOpen(false);
+                        setIsUsersModalOpen(true);
+                      }}
+                      className="w-full px-3 py-2 text-right hover:bg-slate-100 flex items-center gap-2 text-slate-800"
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>ניהול משתמשים וסיסמאות</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUserMenuOpen(false);
+                        handleLogout();
+                      }}
+                      className="w-full px-3 py-2 text-right hover:bg-red-50 text-red-600 flex items-center gap-2 border-t border-slate-100"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>התנתקות</span>
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </header>
 
         {/* ================================================================== */}
-        {/* גוף האפליקציה (Zero-Scroll במסך הבית — 3 רצועות נקיות בגובה מסך אחד) */}
+        {/* גוף האפליקציה (Zero-Scroll במסך הבית — חיפוש מרכזי + דופק יומי + קטגוריות וגרפים) */}
         {/* ================================================================== */}
         <div
           ref={scrollContainerRef}
@@ -1260,61 +1232,189 @@ export default function DashboardPage() {
           {screenMode === 'home' ? (
             <div className="flex-1 flex flex-col justify-between gap-3 min-h-0">
               {/* ============================================================ */}
-              {/* רצועה 2 — הדופק היומי (השורה החשובה ביותר, מיד מתחת לחיפוש): */}
-              {/* 5 כרטיסי פעולה חיים עם אייקונים וגרפים קטנים (Sparklines / מד אחוזים) */}
+              {/* רצועה 1 במסך הבית — שורת חיפוש ראשית ממורכזת ובולטת (Hero Search Bar) */}
+              {/* עם אייקון זכוכית מגדלת בלבד (ללא טקסטים מסבירים מעליה) + 3 כפתורי פעולה */}
               {/* ============================================================ */}
-              <section className="space-y-2">
-                <div className="flex items-center justify-between px-1">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                    <h2 className="text-sm sm:text-base font-extrabold text-slate-900">
-                      הדופק היומי — מוקדי פעולה ומועדים חיים
-                    </h2>
+              <section className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-xs">
+                <div className="max-w-5xl mx-auto flex flex-wrap items-center justify-center gap-2.5">
+                  {/* שורת חיפוש ראשית ממורכזת עם אייקון זכוכית מגדלת בלבד */}
+                  <div className="relative flex-1 min-w-[260px]">
+                    <Search className="w-5 h-5 text-slate-400 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="text"
+                      aria-label="חיפוש תיק לפי שם לקוח, ת״ז, מספר תיק או נושא"
+                      value={homeSearchQuery}
+                      onChange={(e) => setHomeSearchQuery(e.target.value)}
+                      placeholder="חיפוש לפי שם לקוח / חייב, ת״ז, מספר תיק או שלב..."
+                      className="w-full pr-11 pl-9 py-2.5 text-sm sm:text-base rounded-xl bg-slate-50 focus:bg-white text-slate-900 placeholder-slate-400 font-bold border-2 border-slate-200 focus:border-blue-600 outline-none transition"
+                    />
+                    {homeSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setHomeSearchQuery('')}
+                        className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-extrabold text-slate-400 hover:text-slate-700"
+                      >
+                        ✕
+                      </button>
+                    )}
+
+                    {/* רשימת תוצאות קופצת */}
+                    {homeSearchQuery.trim() !== '' && (
+                      <div className="absolute right-0 left-0 top-full mt-1.5 bg-white text-slate-900 rounded-2xl shadow-2xl border border-slate-200 z-50 max-h-80 overflow-y-auto divide-y divide-slate-100">
+                        {homeSearchResults.length === 0 ? (
+                          <div className="p-4 text-center text-xs font-bold text-slate-500">
+                            לא נמצאו תיקים התואמים ל-&quot;{homeSearchQuery}&quot;
+                          </div>
+                        ) : (
+                          homeSearchResults.map((c) => (
+                            <button
+                              key={c.id}
+                              type="button"
+                              onClick={() => {
+                                setHomeSearchQuery('');
+                                openCaseDrawer(c);
+                              }}
+                              className="w-full p-3 hover:bg-blue-50 text-right flex items-center justify-between gap-2 transition"
+                            >
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="px-2 py-0.5 rounded text-[11px] font-extrabold bg-blue-100 text-blue-900">
+                                    {c.category}
+                                  </span>
+                                  <span className="font-extrabold text-slate-900 text-sm">
+                                    {c.debtor_name}
+                                  </span>
+                                  {c.current_stage && (
+                                    <span className="text-xs text-slate-600 font-bold">
+                                      • {c.current_stage}
+                                    </span>
+                                  )}
+                                  {c.case_number ? (
+                                    <span className="text-xs font-mono font-bold text-slate-700">
+                                      ({c.case_number})
+                                    </span>
+                                  ) : (
+                                    <span className="text-[11px] text-amber-700 font-bold">
+                                      (ללא מס׳ תיק)
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <span className="px-2.5 py-1 rounded-lg bg-[#0F172A] text-white text-xs font-extrabold shrink-0">
+                                פתח תיק ➔
+                              </span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
                   </div>
-                  <div className="flex items-center gap-2 text-xs font-bold text-slate-600">
-                    <span>
-                      סה&quot;כ תיקים פעילים:{' '}
-                      <strong className="text-slate-900">
-                        {homeMetrics.totalActiveCases}
-                      </strong>
-                    </span>
-                    <span>•</span>
+
+                  {/* כפתורי הפעולה הראשיים למסך הבית בלבד */}
+                  <div className="flex items-center gap-2 flex-wrap">
                     <button
                       type="button"
-                      onClick={() => navigateToCasesScreen('all')}
-                      className="text-blue-700 hover:underline font-extrabold"
+                      onClick={() => setIsNewModalOpen(true)}
+                      className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs sm:text-sm flex items-center gap-1.5 shadow-xs transition"
                     >
-                      הצג את כל התיקים ➔
+                      <Plus className="w-4 h-4 shrink-0" />
+                      <span>+ פתיחת תיק חדש</span>
+                    </button>
+
+                    <div className="relative inline-flex items-center">
+                      <button
+                        type="button"
+                        onClick={() => setIsSmartPasteOpen(true)}
+                        className="px-4 py-2.5 rounded-r-xl bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs sm:text-sm flex items-center gap-1.5 shadow-xs transition"
+                      >
+                        <ClipboardPaste className="w-4 h-4 shrink-0" />
+                        <span>קליטה חכמה (מייל / נט המשפט)</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowSmartPasteHint((v) => !v)}
+                        title="הסבר והנחיות לקליטה חכמה"
+                        className="px-2.5 py-2.5 rounded-l-xl bg-blue-700 hover:bg-blue-600 text-sky-200 border-r border-blue-500 font-extrabold text-xs sm:text-sm flex items-center justify-center transition"
+                      >
+                        <HelpCircle className="w-4 h-4" />
+                      </button>
+
+                      {showSmartPasteHint && (
+                        <div className="absolute left-0 top-full mt-2 w-80 p-3 rounded-xl bg-slate-900 text-white text-xs shadow-2xl border border-slate-700 z-50 space-y-1">
+                          <div className="font-extrabold text-sky-300 flex items-center justify-between">
+                            <span>קליטה חכמה ממייל / נט המשפט</span>
+                            <button
+                              type="button"
+                              onClick={() => setShowSmartPasteHint(false)}
+                              className="text-slate-400 hover:text-white"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                          <p className="text-slate-200 leading-relaxed">
+                            הדבק משפט חופשי או הודעת נט המשפט — המערכת מזהה אוטומטית שם לקוח, מספר תיק, סוג פעולה ותאריכים יחסיים (`לעוד 14 ימים`, `מחר`, `בעוד שבוע`).
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsReportsModalOpen(true)}
+                      className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs sm:text-sm flex items-center gap-1.5 shadow-xs transition"
+                    >
+                      <BarChart3 className="w-4 h-4 text-sky-200 shrink-0" />
+                      <span>דוחות וגרפים</span>
                     </button>
                   </div>
                 </div>
+              </section>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-                  {/* 1. דיונים קרובים (השבוע / 14 יום הקרובים) */}
+              {/* ============================================================ */}
+              {/* רצועה 2 — הדופק היומי (מיד מתחת לחיפוש — 6 כרטיסי פעולה לחיצים) */}
+              {/* 1. דיונים קרובים | 2. דיונים שנדחו / בוטלו | 3. הגשות ותגובות לביהמ"ש */}
+              {/* 4. משימות דחופות ואיחורים | 5. מעקב נט המשפט | 6. תיקים רדומים (30+ יום) */}
+              {/* ============================================================ */}
+              <section className="space-y-1.5">
+                <div className="flex items-center justify-between px-1">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <h2 className="text-sm font-extrabold text-slate-900">
+                      הדופק היומי
+                    </h2>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => navigateToCasesScreen('all')}
+                    className="text-xs text-blue-700 hover:underline font-extrabold"
+                  >
+                    לכל התיקים ({homeMetrics.totalActiveCases}) ➔
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+                  {/* 1. דיונים קרובים */}
                   <button
                     type="button"
                     onClick={() => handleKpiCardClick('upcoming_hearings')}
-                    className="p-4 rounded-2xl bg-white border border-slate-200 border-t-4 border-t-amber-500 hover:shadow-md text-right transition flex flex-col justify-between space-y-2.5 group"
+                    className="p-3 rounded-2xl bg-white border border-slate-200 border-t-4 border-t-amber-500 hover:shadow-md text-right transition flex flex-col justify-between space-y-2 group"
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-extrabold text-slate-900 group-hover:text-amber-700">
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-xs font-extrabold text-slate-900 group-hover:text-amber-700">
                         דיונים קרובים
                       </span>
-                      <div className="w-8 h-8 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center">
-                        <CalendarClock className="w-4 h-4 text-amber-600" />
-                      </div>
+                      <CalendarClock className="w-4 h-4 text-amber-600 shrink-0" />
                     </div>
-
                     <div>
                       <div className="flex items-baseline justify-between">
-                        <span className="text-3xl font-extrabold text-amber-600">
+                        <span className="text-2xl font-extrabold text-amber-600">
                           {homeMetrics.upcomingHearings.length}
                         </span>
-                        <span className="text-[11px] font-extrabold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
-                          14 יום הקרובים
+                        <span className="text-[10px] font-extrabold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded-full">
+                          14 יום
                         </span>
                       </div>
-                      <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden mt-2">
+                      <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1.5">
                         <div
                           className="h-full bg-amber-500 rounded-full"
                           style={{
@@ -1323,40 +1423,32 @@ export default function DashboardPage() {
                         />
                       </div>
                     </div>
-
-                    <div className="text-[11px] font-bold text-slate-500 flex items-center justify-between pt-1 border-t border-slate-100">
-                      <span>{homeMetrics.upcomingPct}% מהתיקים</span>
-                      <span className="text-amber-700 font-extrabold">
-                        פתח מסך ➔
-                      </span>
-                    </div>
                   </button>
 
-                  {/* 2. דיונים שנדחו / בוטלו (כולל מעקב היסטוריה) */}
+                  {/* 2. דיונים שנדחו / בוטלו */}
                   <button
                     type="button"
                     onClick={() => handleKpiCardClick('postponed_hearings')}
-                    className="p-4 rounded-2xl bg-white border border-slate-200 border-t-4 border-t-rose-500 hover:shadow-md text-right transition flex flex-col justify-between space-y-2.5 group"
+                    className="p-3 rounded-2xl bg-white border border-slate-200 border-t-4 border-t-rose-500 hover:shadow-md text-right transition flex flex-col justify-between space-y-2 group"
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-extrabold text-slate-900 group-hover:text-rose-700">
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-xs font-extrabold text-slate-900 group-hover:text-rose-700">
                         דיונים שנדחו / בוטלו
                       </span>
-                      <span className="px-2 py-0.5 text-[11px] font-extrabold rounded-lg bg-rose-100 text-rose-800 border border-rose-300">
+                      <span className="px-1.5 py-0.5 text-[10px] font-extrabold rounded bg-rose-100 text-rose-800">
                         נדחה
                       </span>
                     </div>
-
                     <div>
                       <div className="flex items-baseline justify-between">
-                        <span className="text-3xl font-extrabold text-rose-600">
+                        <span className="text-2xl font-extrabold text-rose-600">
                           {homeMetrics.postponedHearings.length}
                         </span>
-                        <span className="text-[11px] font-extrabold text-rose-800 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
-                          {homeMetrics.totalExtensionsSum} דחיות בהיסטוריה
+                        <span className="text-[10px] font-extrabold text-rose-800 bg-rose-50 px-1.5 py-0.5 rounded-full">
+                          {homeMetrics.totalExtensionsSum} דחיות
                         </span>
                       </div>
-                      <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden mt-2">
+                      <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1.5">
                         <div
                           className="h-full bg-rose-500 rounded-full"
                           style={{
@@ -1365,40 +1457,30 @@ export default function DashboardPage() {
                         />
                       </div>
                     </div>
-
-                    <div className="text-[11px] font-bold text-slate-500 flex items-center justify-between pt-1 border-t border-slate-100">
-                      <span>מעקב היסטוריה וסיבות</span>
-                      <span className="text-rose-700 font-extrabold">
-                        פתח מסך ➔
-                      </span>
-                    </div>
                   </button>
 
                   {/* 3. הגשות ותגובות לביהמ"ש / נט המשפט (כולל ימי היערכות מראש) */}
                   <button
                     type="button"
                     onClick={() => handleKpiCardClick('court_submissions')}
-                    className="p-4 rounded-2xl bg-white border border-slate-200 border-t-4 border-t-purple-600 hover:shadow-md text-right transition flex flex-col justify-between space-y-2.5 group"
+                    className="p-3 rounded-2xl bg-white border border-slate-200 border-t-4 border-t-purple-600 hover:shadow-md text-right transition flex flex-col justify-between space-y-2 group"
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-extrabold text-slate-900 group-hover:text-purple-700">
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-xs font-extrabold text-slate-900 group-hover:text-purple-700">
                         הגשות ותגובות לביהמ&quot;ש
                       </span>
-                      <div className="w-8 h-8 rounded-xl bg-purple-50 border border-purple-200 flex items-center justify-center">
-                        <FileText className="w-4 h-4 text-purple-600" />
-                      </div>
+                      <FileText className="w-4 h-4 text-purple-600 shrink-0" />
                     </div>
-
                     <div>
                       <div className="flex items-baseline justify-between">
-                        <span className="text-3xl font-extrabold text-purple-700">
+                        <span className="text-2xl font-extrabold text-purple-700">
                           {homeMetrics.courtSubmissions.length}
                         </span>
-                        <span className="text-[11px] font-extrabold text-purple-900 bg-purple-100 px-2 py-0.5 rounded-full border border-purple-300">
-                          היערכות: {homeMetrics.avgPrepDays} ימים מראש
+                        <span className="text-[10px] font-extrabold text-purple-900 bg-purple-100 px-1.5 py-0.5 rounded-full">
+                          היערכות: {homeMetrics.avgPrepDays} ימים
                         </span>
                       </div>
-                      <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden mt-2">
+                      <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1.5">
                         <div
                           className="h-full bg-purple-600 rounded-full"
                           style={{
@@ -1410,40 +1492,30 @@ export default function DashboardPage() {
                         />
                       </div>
                     </div>
-
-                    <div className="text-[11px] font-bold text-slate-500 flex items-center justify-between pt-1 border-t border-slate-100">
-                      <span>תגובות, תביעות חוב ובקשות</span>
-                      <span className="text-purple-700 font-extrabold">
-                        פתח מסך ➔
-                      </span>
-                    </div>
                   </button>
 
                   {/* 4. משימות דחופות ואיחורים */}
                   <button
                     type="button"
                     onClick={() => handleKpiCardClick('urgent_tasks')}
-                    className="p-4 rounded-2xl bg-white border border-slate-200 border-t-4 border-t-red-600 hover:shadow-md text-right transition flex flex-col justify-between space-y-2.5 group"
+                    className="p-3 rounded-2xl bg-white border border-slate-200 border-t-4 border-t-red-600 hover:shadow-md text-right transition flex flex-col justify-between space-y-2 group"
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-extrabold text-slate-900 group-hover:text-red-600">
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-xs font-extrabold text-slate-900 group-hover:text-red-600">
                         משימות דחופות ואיחורים
                       </span>
-                      <div className="w-8 h-8 rounded-xl bg-red-50 border border-red-200 flex items-center justify-center">
-                        <Flame className="w-4 h-4 text-red-600" />
-                      </div>
+                      <Flame className="w-4 h-4 text-red-600 shrink-0" />
                     </div>
-
                     <div>
                       <div className="flex items-baseline justify-between">
-                        <span className="text-3xl font-extrabold text-red-600">
+                        <span className="text-2xl font-extrabold text-red-600">
                           {homeMetrics.urgentTasks.length}
                         </span>
-                        <span className="text-[11px] font-extrabold text-red-800 bg-red-50 px-2 py-0.5 rounded-full border border-red-200">
-                          {homeMetrics.delayedCases.length} בחריגת מועד
+                        <span className="text-[10px] font-extrabold text-red-800 bg-red-50 px-1.5 py-0.5 rounded-full">
+                          {homeMetrics.delayedCases.length} באיחור
                         </span>
                       </div>
-                      <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden mt-2">
+                      <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1.5">
                         <div
                           className="h-full bg-red-600 rounded-full"
                           style={{
@@ -1452,40 +1524,30 @@ export default function DashboardPage() {
                         />
                       </div>
                     </div>
-
-                    <div className="text-[11px] font-bold text-slate-500 flex items-center justify-between pt-1 border-t border-slate-100">
-                      <span>דחוף מאוד / +30 יום ממסירה</span>
-                      <span className="text-red-700 font-extrabold">
-                        פתח מסך ➔
-                      </span>
-                    </div>
                   </button>
 
                   {/* 5. מעקב נט המשפט והחלטות ממתינות */}
                   <button
                     type="button"
                     onClick={() => handleKpiCardClick('net_hamishpat')}
-                    className="p-4 rounded-2xl bg-white border border-slate-200 border-t-4 border-t-indigo-600 hover:shadow-md text-right transition flex flex-col justify-between space-y-2.5 group"
+                    className="p-3 rounded-2xl bg-white border border-slate-200 border-t-4 border-t-indigo-600 hover:shadow-md text-right transition flex flex-col justify-between space-y-2 group"
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-extrabold text-slate-900 group-hover:text-indigo-700">
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-xs font-extrabold text-slate-900 group-hover:text-indigo-700">
                         מעקב נט המשפט והחלטות
                       </span>
-                      <div className="w-8 h-8 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-center">
-                        <Gavel className="w-4 h-4 text-indigo-600" />
-                      </div>
+                      <Gavel className="w-4 h-4 text-indigo-600 shrink-0" />
                     </div>
-
                     <div>
                       <div className="flex items-baseline justify-between">
-                        <span className="text-3xl font-extrabold text-indigo-700">
+                        <span className="text-2xl font-extrabold text-indigo-700">
                           {homeMetrics.netHaMishpatCases.length}
                         </span>
-                        <span className="text-[11px] font-extrabold text-indigo-900 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">
+                        <span className="text-[10px] font-extrabold text-indigo-900 bg-indigo-50 px-1.5 py-0.5 rounded-full">
                           {homeMetrics.netHaMishpatPct}% במעקב
                         </span>
                       </div>
-                      <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden mt-2">
+                      <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1.5">
                         <div
                           className="h-full bg-indigo-600 rounded-full"
                           style={{
@@ -1497,27 +1559,52 @@ export default function DashboardPage() {
                         />
                       </div>
                     </div>
+                  </button>
 
-                    <div className="text-[11px] font-bold text-slate-500 flex items-center justify-between pt-1 border-t border-slate-100">
-                      <span>החלטות שופט/רשם ותגובות</span>
-                      <span className="text-indigo-700 font-extrabold">
-                        פתח מסך ➔
+                  {/* 6. תיקים רדומים (ללא תנועה 30+ יום) */}
+                  <button
+                    type="button"
+                    onClick={() => handleKpiCardClick('dormant_cases')}
+                    className="p-3 rounded-2xl bg-white border border-slate-200 border-t-4 border-t-slate-600 hover:shadow-md text-right transition flex flex-col justify-between space-y-2 group"
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-xs font-extrabold text-slate-900 group-hover:text-slate-700">
+                        תיקים רדומים (30+ יום)
                       </span>
+                      <Moon className="w-4 h-4 text-slate-600 shrink-0" />
+                    </div>
+                    <div>
+                      <div className="flex items-baseline justify-between">
+                        <span className="text-2xl font-extrabold text-slate-700">
+                          {homeMetrics.dormantCases.length}
+                        </span>
+                        <span className="text-[10px] font-extrabold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded-full">
+                          ללא תנועה
+                        </span>
+                      </div>
+                      <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1.5">
+                        <div
+                          className="h-full bg-slate-600 rounded-full"
+                          style={{
+                            width: `${Math.max(homeMetrics.dormantPct, 8)}%`,
+                          }}
+                        />
+                      </div>
                     </div>
                   </button>
                 </div>
               </section>
 
               {/* ============================================================ */}
-              {/* רצועה 3 — מבט-על ויזואלי וגרפים (בתחתית המסך):               */}
-              {/* פילוח ויזואלי נקי של 4 הקטגוריות + גרף עומס/סטטוסים צבעוני וברור */}
+              {/* רצועה 3 — פילוח ויזואלי של 4 הקטגוריות + גרפי סטטוס ועומס נקיים */}
+              {/* (ללא כרטיס או חישובי שכר טרחה)                                 */}
               {/* ============================================================ */}
-              <section className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-                {/* 1. פילוח ויזואלי נקי של 4 הקטגוריות (רשויות, חדל"פ, חברות, חברה משכנת) */}
-                <div className="lg:col-span-7 bg-white p-4 rounded-2xl border border-slate-200 border-t-4 border-t-blue-600 shadow-xs flex flex-col justify-between space-y-3">
+              <section className="grid grid-cols-1 lg:grid-cols-12 gap-3">
+                {/* 1. פילוח ויזואלי של 4 הקטגוריות (רשויות, חדל"פ, חברות, חברה משכנת) */}
+                <div className="lg:col-span-7 bg-white p-4 rounded-2xl border border-slate-200 border-t-4 border-t-blue-600 shadow-xs flex flex-col justify-between space-y-2.5">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-sm sm:text-base font-extrabold text-slate-900">
-                      4 עולמות התוכן (לחץ על קטגוריה לפתיחה)
+                    <h3 className="text-sm font-extrabold text-slate-900">
+                      4 עולמות התוכן
                     </h3>
                     <button
                       type="button"
@@ -1594,7 +1681,7 @@ export default function DashboardPage() {
                             </span>
                           </div>
 
-                          <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                          <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
                             <div
                               className={`h-full rounded-full ${colorCfg.bar} transition-all duration-300`}
                               style={{
@@ -1611,20 +1698,16 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* 2. גרף עומס / סטטוסים וביצוע משימות צבעוני וברור (בלי טקסטים מסבירים מיותרים) */}
-                <div className="lg:col-span-5 bg-white p-4 rounded-2xl border border-slate-200 border-t-4 border-t-emerald-600 shadow-xs flex flex-col justify-between space-y-3">
+                {/* 2. גרפי סטטוס ועומס נקיים (ללא כרטיס או חישובי שכר טרחה) */}
+                <div className="lg:col-span-5 bg-white p-4 rounded-2xl border border-slate-200 border-t-4 border-t-emerald-600 shadow-xs flex flex-col justify-between space-y-2.5">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-sm sm:text-base font-extrabold text-slate-900 flex items-center gap-1.5">
+                    <h3 className="text-sm font-extrabold text-slate-900 flex items-center gap-1.5">
                       <TrendingUp className="w-4 h-4 text-emerald-600" />
                       <span>גרף עומס, שלבים וביצוע משימות</span>
                     </h3>
-                    <button
-                      type="button"
-                      onClick={() => handleKpiCardClick('legal_fees')}
-                      className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-200 text-xs font-extrabold transition"
-                    >
-                      שכ&quot;ט: {homeMetrics.feePaidPct}% שולם ➔
-                    </button>
+                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-900 border border-emerald-200 text-xs font-extrabold">
+                      {homeMetrics.overallProgressPct}% הושלם
+                    </span>
                   </div>
 
                   {/* מד השלמת משימות כללי */}
@@ -1641,7 +1724,7 @@ export default function DashboardPage() {
                         {homeMetrics.overallProgressPct}%
                       </span>
                     </div>
-                    <div className="w-full h-3 bg-slate-200 rounded-full overflow-hidden">
+                    <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
                       <div
                         className="h-full bg-gradient-to-l from-emerald-500 to-blue-600 rounded-full transition-all duration-300"
                         style={{ width: `${homeMetrics.overallProgressPct}%` }}
@@ -2124,6 +2207,23 @@ export default function DashboardPage() {
                               >
                                 <td className="py-3.5 px-4 align-top">
                                   <div className="flex items-center gap-1.5 flex-wrap">
+                                    {systemEditMode && (
+                                      <input
+                                        type="checkbox"
+                                        checked={selectedCaseIds.includes(c.id)}
+                                        onClick={(e) => e.stopPropagation()}
+                                        onChange={(e) => {
+                                          const checked = e.target.checked;
+                                          setSelectedCaseIds((prev) =>
+                                            checked
+                                              ? [...prev, c.id]
+                                              : prev.filter((id) => id !== c.id)
+                                          );
+                                        }}
+                                        title="סמן תיק להחלת שינויי שלבים קבוצתיים"
+                                        className="w-4 h-4 accent-amber-600 rounded cursor-pointer"
+                                      />
+                                    )}
                                     <span className="font-extrabold text-slate-900 group-hover:text-blue-700">
                                       {c.debtor_name}
                                     </span>
@@ -2469,8 +2569,8 @@ export default function DashboardPage() {
           municipalitiesSettings={muniSettings}
           currentUser={currentUser}
           onOpenMuniSettingsModal={() => setIsMuniModalOpen(true)}
-          onOpenNewCaseModal={() => setIsNewModalOpen(true)}
-          onOpenSmartPasteModal={() => setIsSmartPasteOpen(true)}
+          systemEditMode={systemEditMode}
+          selectedCaseIds={selectedCaseIds}
         />
 
         <AddCustomFieldModal

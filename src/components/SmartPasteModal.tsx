@@ -5,8 +5,8 @@ import {
   CalendarClock,
   Check,
   ClipboardPaste,
-  FileText,
   Gavel,
+  HelpCircle,
   Plus,
   Search,
   Sparkles,
@@ -48,6 +48,7 @@ interface ParsedPasteResult {
   subjectSummary: string;
   nextActionType: NextActionType;
   netStatus: NetHaMishpatStatus;
+  enableNetHaMishpat: boolean;
   suggestedStatus: CaseStatus;
   logType: LogType;
   isPostponedHearing: boolean;
@@ -114,11 +115,17 @@ function parseHebrewLegalText(rawText: string): ParsedPasteResult {
     }
   }
 
-  // 3. זיהוי סוג פעולה וסטטוס נט המשפט
-  let nextActionType: NextActionType = 'הגשה לביהמ"ש';
-  let netStatus: NetHaMishpatStatus = 'התקבלה החלטה';
+  // 3. זיהוי הקשר נט המשפט / בית משפט (מופעל אך ורק כשמזוהה הקשר של נט המשפט / בית משפט)
+  const isCourtOrNetContext =
+    /נט המשפט|ביהמ"ש|בית המשפט|כבוד השופט|השופט|הרשם|החלטת|החלטה|פסק דין|צו|דיון/.test(
+      text
+    );
+
+  // 4. הפרדה אוטומטית בין סוגי פעולות: דיון | הגשה לביהמ"ש / תגובה | תזכורת | משימת מעקב
+  let nextActionType: NextActionType = 'משימת מעקב';
+  let netStatus: NetHaMishpatStatus = 'ללא מעקב פעיל';
   let suggestedStatus: CaseStatus = 'פעיל';
-  let logType: LogType = 'החלטת ביהמ"ש';
+  let logType: LogType = 'הערה';
   let isPostponedHearing = false;
   let prepDays = 7;
 
@@ -156,6 +163,21 @@ function parseHebrewLegalText(rawText: string): ParsedPasteResult {
     logType = 'החלטת ביהמ"ש';
     prepDays = 5;
   } else if (
+    text.includes('הגשה') ||
+    text.includes('הגשת') ||
+    text.includes('ביהמ"ש')
+  ) {
+    nextActionType = 'הגשה לביהמ"ש';
+    suggestedStatus = 'הגשה ממתינה לביהמ"ש';
+    netStatus = 'הוגשה בקשה בנט המשפט';
+    logType = 'החלטת ביהמ"ש';
+  } else if (text.includes('תזכורת')) {
+    nextActionType = 'תזכורת';
+    logType = 'תזכורת אישית/מועד';
+  } else if (text.includes('משימת') || text.includes('מעקב')) {
+    nextActionType = 'משימת מעקב';
+    logType = 'תזכורת אישית/מועד';
+  } else if (
     text.includes('תביעת חוב') ||
     text.includes('נאמן') ||
     text.includes('דו"ח')
@@ -171,11 +193,6 @@ function parseHebrewLegalText(rawText: string): ParsedPasteResult {
     netStatus = 'ממתין להחלטת שופט/רשם';
   }
 
-  // כללי זיהוי מפורשים: "משימת" / "מעקב" -> 'משימת מעקב / תזכורת', "ממתין להחלטת" / "נט המשפט" -> 'ממתין להחלטת שופט/רשם'
-  if (text.includes('משימת') || text.includes('מעקב')) {
-    nextActionType = 'משימת מעקב / תזכורת';
-    logType = 'תזכורת אישית/מועד';
-  }
   if (text.includes('ממתין להחלטת') || text.includes('נט המשפט')) {
     netStatus = 'ממתין להחלטת שופט/רשם';
     if (suggestedStatus === 'פעיל') {
@@ -183,17 +200,23 @@ function parseHebrewLegalText(rawText: string): ParsedPasteResult {
     }
   }
 
-  // 4. חילוץ שם לקוח / חייב / עניין ועצירה במילת הקשר/סטטוס (ממתין, משימת, דיון, הגשה, בתיק, פסיק/נקודה)
+  if (!isCourtOrNetContext) {
+    netStatus = 'ללא מעקב פעיל';
+  }
+
+  // 5. חילוץ שם מדויק (Strict Name Boundary):
+  // עוצר מיד ברגע שמופיעה מילת פעולה, סטטוס או פיסוק (משימת, מעקב, תזכורת, דיון, הגשה, תגובה, ממתין, בתיק, לעוד, בעוד, או פסיק/מקף)
+  // למשל: "שם אלפוסו מאיר משימת מעקב לעוד 14 ימים" -> "אלפוסו מאיר"
   let detectedPartyName = '';
   let matchedPartyPrefixToken = '';
   const partyRegex =
-    /(?:שם(?:\s+הלקוח|\s+החייב)?|חייב|לקוח|בעניין|החייב|התובע|הנתבע|המבקש|המשיב|חברת|נגד)\s*[:\-]?\s*([א-ת0-9"״'׳\s().-]{2,55})/;
+    /(?:שם(?:\s+הלקוח|\s+החייב)?|חייב|לקוח|בעניין|החייב|התובע|הנתבע|המבקש|המשיב|חברת|נגד)\s*[:\-]?\s*([א-ת0-9"״'׳\s().-]{2,60})/;
   const partyMatch = text.match(partyRegex);
   if (partyMatch && partyMatch[1]) {
     const rawCandidate = partyMatch[1];
     const stoppedCandidate = rawCandidate
       .split(
-        /(?:\s+(?:ממתין|ממתינה|משימת|משימה|דיון|הגשה|הגשת|תגובה|בתיק|תיק|לעוד|בעוד|תוך|מחר|מחרתיים)\b|[,\n.;–—])/
+        /(?:\s+(?:משימת|משימה|מעקב|תזכורת|דיון|הגשה|הגשת|תגובה|תשובה|ממתין|ממתינה|בתיק|תיק|לעוד|בעוד|תוך|מחר|מחרתיים|נט)\b|[,\n.;–—\-])/
       )[0]
       .trim();
     if (stoppedCandidate.length >= 2) {
@@ -203,8 +226,8 @@ function parseHebrewLegalText(rawText: string): ParsedPasteResult {
     }
   }
 
-  // 5. ניקוי תיאור המשימה ("נושא ההחלטה / המשימה לביצוע"):
-  // מסיר את מספר התיק ואת ביטוי הזמן שכבר חולצו לשדות הייעודיים
+  // 6. ניקוי תיאור המשימה ("נושא ההחלטה / המשימה לביצוע"):
+  // מסיר את השם, מספר התיק וביטוי הזמן שכבר חולצו לשדות הייעודיים
   const firstLine =
     text
       .split('\n')
@@ -231,7 +254,7 @@ function parseHebrewLegalText(rawText: string): ParsedPasteResult {
     .trim();
 
   if (!cleanedSubject) {
-    cleanedSubject = firstLine;
+    cleanedSubject = nextActionType;
   }
 
   const subjectSummary =
@@ -246,6 +269,7 @@ function parseHebrewLegalText(rawText: string): ParsedPasteResult {
     subjectSummary,
     nextActionType,
     netStatus,
+    enableNetHaMishpat: isCourtOrNetContext,
     suggestedStatus,
     logType,
     isPostponedHearing,
@@ -260,20 +284,22 @@ export default function SmartPasteModal({
   onCaseUpdatedOrCreated,
 }: SmartPasteModalProps) {
   const [rawText, setRawText] = useState('');
+  const [showHelpTooltip, setShowHelpTooltip] = useState(false);
   const [mode, setMode] = useState<'existing' | 'new'>('existing');
   const [selectedCaseId, setSelectedCaseId] = useState<string>('');
   const [caseSearchQuery, setCaseSearchQuery] = useState('');
 
-  // שדות הניתנים לעריכה מהירה לאחר הזיהוי האוטומטי
+  // שדות תצוגה מקדימה הניתנים לעריכה לפני שמירה
   const [debtorName, setDebtorName] = useState('');
   const [subject, setSubject] = useState('');
   const [caseNumber, setCaseNumber] = useState('');
   const [category, setCategory] = useState<CaseCategory>('גבייה');
   const [nextActionType, setNextActionType] =
-    useState<NextActionType>('הגשה לביהמ"ש');
+    useState<NextActionType>('משימת מעקב');
   const [nextDueDate, setNextDueDate] = useState('');
+  const [netTrackingEnabled, setNetTrackingEnabled] = useState<boolean>(false);
   const [netStatus, setNetStatus] =
-    useState<NetHaMishpatStatus>('התקבלה החלטה');
+    useState<NetHaMishpatStatus>('ללא מעקב פעיל');
   const [status, setStatus] = useState<CaseStatus>('פעיל');
   const [addAsTask, setAddAsTask] = useState(true);
   const [markPostponed, setMarkPostponed] = useState(false);
@@ -285,11 +311,14 @@ export default function SmartPasteModal({
     if (!text.trim()) return;
 
     const parsed = parseHebrewLegalText(text);
-    if (parsed.caseNumber) setCaseNumber(parsed.caseNumber);
+    setCaseNumber(parsed.caseNumber);
     if (parsed.detectedDate) setNextDueDate(parsed.detectedDate);
     if (parsed.subjectSummary) setSubject(parsed.subjectSummary);
     setNextActionType(parsed.nextActionType);
-    setNetStatus(parsed.netStatus);
+    setNetTrackingEnabled(parsed.enableNetHaMishpat);
+    setNetStatus(
+      parsed.enableNetHaMishpat ? parsed.netStatus : 'ללא מעקב פעיל'
+    );
     setStatus(parsed.suggestedStatus);
     setMarkPostponed(parsed.isPostponedHearing);
     setPrepDaysNeeded(parsed.prepDays);
@@ -300,6 +329,13 @@ export default function SmartPasteModal({
         parsed.caseNumber &&
         c.case_number &&
         c.case_number.includes(parsed.caseNumber)
+      ) {
+        return true;
+      }
+      if (
+        parsed.detectedPartyName &&
+        c.debtor_name &&
+        c.debtor_name.includes(parsed.detectedPartyName)
       ) {
         return true;
       }
@@ -335,7 +371,7 @@ export default function SmartPasteModal({
         (c) =>
           c.debtor_name.toLowerCase().includes(q) ||
           (c.case_number || '').toLowerCase().includes(q) ||
-          (c.subject || '').toLowerCase().includes(q) ||
+          (c.stage_note || c.subject || '').toLowerCase().includes(q) ||
           (c.id_or_hp || '').toLowerCase().includes(q)
       )
       .slice(0, 15);
@@ -354,6 +390,9 @@ export default function SmartPasteModal({
         subject.trim() ||
         rawText.trim().split('\n')[0]?.slice(0, 90) ||
         `${nextActionType} בתיק`;
+      const effectiveNetStatus: NetHaMishpatStatus = netTrackingEnabled
+        ? netStatus
+        : 'ללא מעקב פעיל';
 
       if (mode === 'existing' && selectedCase) {
         const currentMilestones: CaseMilestone[] = Array.isArray(
@@ -379,9 +418,9 @@ export default function SmartPasteModal({
 
         const updated = await updateCaseItem(selectedCase.id, {
           case_number: caseNumber.trim() || selectedCase.case_number,
-          subject: subject.trim() || selectedCase.subject || '',
+          stage_note: taskTitle,
           status,
-          net_hamishpat_status: netStatus,
+          net_hamishpat_status: effectiveNetStatus,
           next_action_type: nextActionType,
           next_action_description: taskTitle,
           next_due_date: nextDueDate || selectedCase.next_due_date || null,
@@ -399,26 +438,27 @@ export default function SmartPasteModal({
 
         await addCaseLog({
           case_id: selectedCase.id,
-          log_type: markPostponed ? 'בקשת ארכה / דחיית דיון' : 'החלטת ביהמ"ש',
-          content: `[נקלט מנט המשפט / מייל] ${
-            rawText.trim() || taskTitle
-          }`,
+          log_type: markPostponed
+            ? 'בקשת ארכה / דחיית דיון'
+            : netTrackingEnabled
+            ? 'החלטת ביהמ"ש'
+            : 'תזכורת אישית/מועד',
+          content: `[קליטה חכמה] ${rawText.trim() || taskTitle}`,
           due_date: nextDueDate || null,
         });
 
         onCaseUpdatedOrCreated(updated, false);
         onClose();
       } else {
-        // יצירת תיק חדש בקליק אחד (גם ללא מספר תיק!)
         const finalName =
-          debtorName.trim() || subject.trim() || 'תיק חדש מקליטת נט המשפט';
+          debtorName.trim() || subject.trim() || 'תיק חדש מקליטה חכמה';
         const initialMilestones: CaseMilestone[] = addAsTask
           ? [
               {
                 id: generateId(),
                 title: taskTitle,
                 status: 'in_progress',
-                urgency: 'דחוף מאוד',
+                urgency: 'גבוהה',
                 due_date: nextDueDate || null,
                 started_at: today,
                 completed_at: null,
@@ -428,12 +468,13 @@ export default function SmartPasteModal({
 
         const created = await createCaseItem({
           debtor_name: finalName,
-          subject: subject.trim() || taskTitle,
+          current_stage: `${nextActionType} — בטיפול`,
+          stage_note: taskTitle,
           id_or_hp: '',
-          case_number: caseNumber.trim(), // רשות - יכול להיות ריק
+          case_number: caseNumber.trim(),
           category,
           status,
-          net_hamishpat_status: netStatus,
+          net_hamishpat_status: effectiveNetStatus,
           tags: markPostponed ? ['דיון נדחה'] : [],
           notes: rawText.trim() || taskTitle,
           next_action_type: nextActionType,
@@ -448,10 +489,8 @@ export default function SmartPasteModal({
 
         await addCaseLog({
           case_id: created.id,
-          log_type: 'החלטת ביהמ"ש',
-          content: `[פתיחת תיק מקליטת מייל / נט המשפט] ${
-            rawText.trim() || taskTitle
-          }`,
+          log_type: netTrackingEnabled ? 'החלטת ביהמ"ש' : 'תזכורת אישית/מועד',
+          content: `[פתיחת תיק מקליטה חכמה] ${rawText.trim() || taskTitle}`,
           due_date: nextDueDate || null,
         });
 
@@ -476,23 +515,23 @@ export default function SmartPasteModal({
         onClick={(e) => e.stopPropagation()}
         className="bg-white w-full max-w-3xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90dvh]"
       >
-        {/* כותרת */}
-        <div className="px-6 py-4 bg-[#0F172A] text-white flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-blue-600/20 border border-blue-400/30 flex items-center justify-center text-blue-300">
-              <ClipboardPaste className="w-5 h-5" />
+        {/* כותרת נקייה עם אייקון ? להסבר ודוגמאות */}
+        <div className="px-5 py-3.5 bg-[#0F172A] text-white flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-blue-600/20 border border-blue-400/30 flex items-center justify-center text-blue-300">
+              <ClipboardPaste className="w-4 h-4" />
             </div>
-            <div>
-              <h2 className="text-base font-extrabold flex items-center gap-2">
-                <span>קליטה חכמה ממייל / נט המשפט (Ctrl+V)</span>
-                <span className="px-2 py-0.5 rounded-full text-[11px] bg-blue-500/20 text-blue-200 border border-blue-400/30">
-                  זיהוי תאריכים ותיק אוטומטי
-                </span>
-              </h2>
-              <p className="text-xs text-slate-300">
-                הדבק הודעת מייל, החלטת שופט או עדכון מנט המשפט — המערכת תזהה מועד דיון, מועד תגובה ומספר תיק ותשייך בקליק אחד.
-              </p>
-            </div>
+            <h2 className="text-base font-extrabold">
+              קליטה חכמה (מייל / נט המשפט)
+            </h2>
+            <button
+              type="button"
+              onClick={() => setShowHelpTooltip((v) => !v)}
+              title="הצג הנחיות ודוגמאות לקליטה חכמה"
+              className="w-6 h-6 rounded-full bg-white/10 hover:bg-white/25 text-sky-300 flex items-center justify-center text-xs font-extrabold transition"
+            >
+              <HelpCircle className="w-4 h-4" />
+            </button>
           </div>
           <button
             type="button"
@@ -503,38 +542,56 @@ export default function SmartPasteModal({
           </button>
         </div>
 
+        {/* חלונית עזרה קומפקטית שנפתחת רק בלחיצה על ? */}
+        {showHelpTooltip && (
+          <div className="px-5 py-3 bg-blue-950 text-blue-100 text-xs space-y-1 border-b border-blue-800">
+            <div className="font-extrabold text-white">
+              איך עובדת הקליטה החכמה?
+            </div>
+            <p>
+              הדבק שורה חופשית או הודעה מנט המשפט/מייל. המערכת מחלצת אוטומטית את{' '}
+              <strong>שם הלקוח/החייב</strong> (ועוצרת במילת המשימה),{' '}
+              <strong>מספר תיק</strong>, <strong>סוג פעולה</strong> ו-
+              <strong>תאריך יחסי או מפורש</strong> (`לעוד 14 ימים`, `מחר`, `בעוד שבוע`, `28/11/2026`).
+            </p>
+            <div className="text-sky-300 font-mono text-[11px]">
+              דוגמה 1: &quot;שם אלפוסו מאיר משימת מעקב לעוד 14 ימים&quot; • דוגמה 2: &quot;תיק 45812-06-26 בעניין כהן נכסים — נקבע דיון ליום 28/11/2026&quot;
+            </div>
+          </div>
+        )}
+
         <form
           onSubmit={handleConfirmCapture}
           className="p-5 space-y-4 overflow-y-auto flex-1"
         >
           {/* תיבת הדבקה מרכזית */}
           <div>
-            <label className="block text-xs font-extrabold text-slate-800 mb-1.5 flex items-center justify-between">
-              <span className="flex items-center gap-1.5">
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
                 <Sparkles className="w-4 h-4 text-blue-600" />
-                הדבק כאן טקסט ממייל או מהודעת נט המשפט:
-              </span>
+                <span>הדבק טקסט (Ctrl+V):</span>
+              </label>
               {rawText && (
                 <button
                   type="button"
                   onClick={() => setRawText('')}
                   className="text-xs text-slate-500 hover:text-red-600 font-bold"
                 >
-                  נקה טקסט
+                  נקה
                 </button>
               )}
-            </label>
+            </div>
             <textarea
-              rows={4}
+              rows={3}
               autoFocus
               value={rawText}
               onChange={(e) => handlePasteTextChange(e.target.value)}
-              placeholder='לדוגמה: "תיק 45812-06-26 בעניין כהן נכסים בע"מ — נקבע דיון ליום 28/11/2026. על המבקש להגיש תגובה תוך 14 ימים..."'
+              placeholder='הדבק או הקלד כאן (למשל: "שם אלפוסו מאיר משימת מעקב לעוד 14 ימים")...'
               className="w-full p-3 rounded-xl border-2 border-blue-300 focus:border-blue-600 bg-blue-50/30 text-sm text-slate-900 font-medium outline-none transition"
             />
           </div>
 
-          {/* בחירה: שיוך לתיק קיים או פתיחת תיק חדש */}
+          {/* בחירה קצרה ונקייה: שיוך לתיק קיים או פתיחת תיק חדש */}
           <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl">
             <button
               type="button"
@@ -545,7 +602,7 @@ export default function SmartPasteModal({
                   : 'text-slate-700 hover:bg-slate-200'
               }`}
             >
-              שייך ועדכן תיק קיים ({cases.filter((c) => !c.is_archived).length})
+              שיוך לתיק קיים ({cases.filter((c) => !c.is_archived).length})
             </button>
             <button
               type="button"
@@ -557,7 +614,7 @@ export default function SmartPasteModal({
               }`}
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>פתח תיק חדש מהודעה זו (גם ללא מספר תיק)</span>
+              <span>פתיחת תיק חדש</span>
             </button>
           </div>
 
@@ -565,7 +622,7 @@ export default function SmartPasteModal({
             <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
               <div className="flex items-center justify-between gap-2">
                 <label className="text-xs font-extrabold text-slate-800">
-                  בחר תיק לשיוך ההחלטה / העדכון:
+                  בחר תיק:
                 </label>
                 <div className="relative w-64">
                   <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2" />
@@ -573,7 +630,7 @@ export default function SmartPasteModal({
                     type="text"
                     value={caseSearchQuery}
                     onChange={(e) => setCaseSearchQuery(e.target.value)}
-                    placeholder="חפש תיק לפי שם, נושא או מספר..."
+                    placeholder="סינון לפי שם או מספר תיק..."
                     className="w-full pr-8 pl-2.5 py-1 text-xs rounded-lg border border-slate-300 bg-white outline-none focus:border-blue-600"
                   />
                 </div>
@@ -581,17 +638,17 @@ export default function SmartPasteModal({
 
               {filteredExistingCases.length === 0 ? (
                 <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs font-bold text-amber-900 flex items-center justify-between">
-                  <span>לא נמצאו תיקים קיימים במערכת.</span>
+                  <span>לא נמצאו תיקים תואמים.</span>
                   <button
                     type="button"
                     onClick={() => setMode('new')}
                     className="px-2.5 py-1 rounded-lg bg-blue-600 text-white font-extrabold"
                   >
-                    עבור לפתיחת תיק חדש ➔
+                    פתיחת תיק חדש ➔
                   </button>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-36 overflow-y-auto">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-32 overflow-y-auto">
                   {filteredExistingCases.map((c) => {
                     const isSelected = c.id === selectedCaseId;
                     return (
@@ -600,6 +657,7 @@ export default function SmartPasteModal({
                         type="button"
                         onClick={() => {
                           setSelectedCaseId(c.id);
+                          setDebtorName(c.debtor_name);
                           setCategory(c.category);
                         }}
                         className={`p-2 rounded-lg border text-right text-xs transition flex items-center justify-between ${
@@ -614,11 +672,7 @@ export default function SmartPasteModal({
                             <span className="text-[11px] font-mono text-slate-500 mr-1.5">
                               ({c.case_number})
                             </span>
-                          ) : (
-                            <span className="text-[10px] text-amber-700 mr-1.5">
-                              (ללא מס׳ תיק)
-                            </span>
-                          )}
+                          ) : null}
                         </div>
                         <span className="px-1.5 py-0.5 rounded bg-slate-100 text-[10px] font-bold shrink-0">
                           {c.category}
@@ -633,14 +687,14 @@ export default function SmartPasteModal({
             <div className="p-3.5 rounded-xl bg-blue-50/50 border border-blue-200 grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs font-extrabold text-slate-800 mb-1">
-                  שם לקוח / חייב / עניין *
+                  שם לקוח / חייב *
                 </label>
                 <input
                   type="text"
                   required={mode === 'new'}
                   value={debtorName}
                   onChange={(e) => setDebtorName(e.target.value)}
-                  placeholder="למשל: כהן נכסים בע״מ"
+                  placeholder="למשל: אלפוסו מאיר"
                   className="w-full p-2 text-xs rounded-lg border border-slate-300 bg-white font-bold"
                 />
               </div>
@@ -664,30 +718,30 @@ export default function SmartPasteModal({
 
               <div>
                 <label className="block text-xs font-extrabold text-slate-800 mb-1">
-                  מספר תיק (רשות — זוהה אוטומטית)
+                  מספר תיק (רשות)
                 </label>
                 <input
                   type="text"
                   value={caseNumber}
                   onChange={(e) => setCaseNumber(e.target.value)}
-                  placeholder="ניתן להשאיר ריק ולהשלים בהמשך"
+                  placeholder="אופציונלי"
                   className="w-full p-2 text-xs rounded-lg border border-slate-300 bg-white font-mono"
                 />
               </div>
             </div>
           )}
 
-          {/* פרטי הזיהוי שנשלפו מהטקסט */}
+          {/* תצוגה מקדימה ברורה לעריכה לפני שמירה */}
           <div className="p-3.5 rounded-xl bg-white border border-slate-200 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-extrabold text-slate-900 flex items-center gap-1.5">
                 <Gavel className="w-4 h-4 text-blue-700" />
-                נתונים שזוהו לעדכון בתיק וביומן:
+                תצוגה מקדימה של הנתונים שזוהו (ניתן לערוך לפני שמירה):
               </span>
               {nextDueDate && (
                 <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300 text-xs font-extrabold flex items-center gap-1">
                   <CalendarClock className="w-3.5 h-3.5" />
-                  מועד שזוהה: {formatDateHe(nextDueDate)}
+                  תאריך יעד: {formatDateHe(nextDueDate)}
                 </span>
               )}
             </div>
@@ -695,20 +749,20 @@ export default function SmartPasteModal({
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
               <div className="sm:col-span-2">
                 <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                  נושא ההחלטה / המשימה לביצוע
+                  תיאור המשימה / ההחלטה (נוקה אוטומטית)
                 </label>
                 <input
                   type="text"
                   value={subject}
                   onChange={(e) => setSubject(e.target.value)}
-                  placeholder="תמצית ההחלטה או הפעולה הנדרשת"
+                  placeholder="תמצית המשימה או ההחלטה"
                   className="w-full p-2 text-xs rounded-lg border border-slate-300 font-bold"
                 />
               </div>
 
               <div>
                 <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                  סוג פעולה (דיון / הגשה / תגובה)
+                  סוג פעולה
                 </label>
                 <select
                   value={nextActionType}
@@ -737,16 +791,43 @@ export default function SmartPasteModal({
                 />
               </div>
 
+              {/* סטטוס מעקב נט המשפט — כבוי כברירת מחדל במייל רגיל, נדלק רק בהקשר בימ"ש/נט המשפט או בסימון יזום */}
               <div className="sm:col-span-2">
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                  סטטוס מעקב נט המשפט
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="inline-flex items-center gap-1.5 text-[11px] font-extrabold text-indigo-950 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={netTrackingEnabled}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setNetTrackingEnabled(checked);
+                        if (checked && netStatus === 'ללא מעקב פעיל') {
+                          setNetStatus('ממתין להחלטת שופט/רשם');
+                        } else if (!checked) {
+                          setNetStatus('ללא מעקב פעיל');
+                        }
+                      }}
+                      className="rounded text-indigo-600"
+                    />
+                    <span>הפעל מעקב נט המשפט / ביהמ&quot;ש</span>
+                  </label>
+                  {!netTrackingEnabled && (
+                    <span className="text-[10px] text-slate-400 font-bold">
+                      (כבוי למייל/משימה רגילה)
+                    </span>
+                  )}
+                </div>
                 <select
-                  value={netStatus}
+                  disabled={!netTrackingEnabled}
+                  value={netTrackingEnabled ? netStatus : 'ללא מעקב פעיל'}
                   onChange={(e) =>
                     setNetStatus(e.target.value as NetHaMishpatStatus)
                   }
-                  className="w-full p-2 text-xs rounded-lg border border-indigo-300 bg-indigo-50/50 text-indigo-950 font-extrabold"
+                  className={`w-full p-2 text-xs rounded-lg border font-extrabold transition ${
+                    netTrackingEnabled
+                      ? 'border-indigo-300 bg-indigo-50/50 text-indigo-950'
+                      : 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'
+                  }`}
                 >
                   {NET_HAMISHPAT_STATUSES.map((ns) => (
                     <option key={ns} value={ns}>
@@ -798,7 +879,7 @@ export default function SmartPasteModal({
                   onChange={(e) => setAddAsTask(e.target.checked)}
                   className="rounded text-blue-600"
                 />
-                <span>הוסף אוטומטית לרשימת &quot;משימות לביצוע&quot; בתיק</span>
+                <span>הוסף למשימות לביצוע בתיק</span>
               </label>
 
               <label className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-800 cursor-pointer">
@@ -808,7 +889,7 @@ export default function SmartPasteModal({
                   onChange={(e) => setMarkPostponed(e.target.checked)}
                   className="rounded text-rose-600"
                 />
-                <span>סמן כדיון שנדחה / בוטל (מעדכן מונה דחיות והיסטוריה)</span>
+                <span>סמן כדיון שנדחה / בוטל</span>
               </label>
             </div>
           </div>
@@ -832,9 +913,7 @@ export default function SmartPasteModal({
             >
               <Check className="w-4 h-4" />
               <span>
-                {mode === 'existing'
-                  ? 'אשר ושייך לתיק + רשום ביומן הכרונולוגי'
-                  : 'פתח תיק חדש ושמור ביומן הכרונולוגי'}
+                {mode === 'existing' ? 'שמור ועדכן תיק' : 'פתיחת תיק חדש'}
               </span>
             </button>
           </div>

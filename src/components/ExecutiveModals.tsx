@@ -82,6 +82,7 @@ export type ExecutiveKpiType =
   | 'reminders_week'
   | 'court_submissions'
   | 'net_hamishpat'
+  | 'dormant_cases'
   | 'delayed_cases'
   | 'legal_fees';
 

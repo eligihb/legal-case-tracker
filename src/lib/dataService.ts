@@ -294,6 +294,8 @@ export function safeNormalizeCaseItem(raw: Partial<CaseItem>): CaseItem {
     id: raw.id || generateId(),
     debtor_name: raw.debtor_name || 'תיק ללא שם',
     subject: raw.subject ?? '',
+    stage_note: raw.stage_note ?? (raw.subject || ''),
+    fee_notes: raw.fee_notes ?? '',
     id_or_hp: raw.id_or_hp ?? '',
     case_number: raw.case_number ?? '',
     gush_helka: raw.gush_helka ?? '',
@@ -1293,6 +1295,118 @@ export async function toggleCaseFeePaid(
   saveLocalCases(updatedCases);
   return updatedCases;
 }
+
+// ============================================================================
+// מצב עריכת מערכת חי בהקשר (Live Admin Edit Mode) — החלת שינויי שלבים ב-4 רמות:
+// 1. תיק זה (case) | 2. תיקים מסומנים (selected) | 3. קטגוריה (category) | 4. הכל (all)
+// ============================================================================
+export type StageBulkApplyScope = 'case' | 'selected' | 'category' | 'all';
+
+export async function bulkApplyStageMutation(params: {
+  action: 'add' | 'rename' | 'delete' | 'reorder' | 'set_active_stage';
+  scope: StageBulkApplyScope;
+  targetCaseId?: string;
+  selectedCaseIds?: string[];
+  targetCategory?: CaseCategory;
+  stageTitle?: string;
+  oldStageTitle?: string;
+  newStageTitle?: string;
+  direction?: 'up' | 'down';
+  stageNote?: string;
+}): Promise<CaseItem[]> {
+  const user = getCurrentUserSession();
+  const now = new Date().toISOString();
+  const today = now.split('T')[0];
+  const cases = getLocalCases();
+  const selectedSet = new Set(params.selectedCaseIds || []);
+
+  const updatedCases = cases.map((c) => {
+    const matchesScope =
+      params.scope === 'all' ||
+      (params.scope === 'category' && c.category === params.targetCategory) ||
+      (params.scope === 'selected' &&
+        (selectedSet.has(c.id) || c.id === params.targetCaseId)) ||
+      (params.scope === 'case' && c.id === params.targetCaseId);
+
+    if (!matchesScope) return c;
+
+    let nextMilestones = [...(c.milestones || [])];
+    let nextCurrentStage = c.current_stage || '';
+    let nextStageNote = c.stage_note ?? '';
+
+    if (params.action === 'add' && params.stageTitle?.trim()) {
+      const cleanTitle = params.stageTitle.trim();
+      if (!nextMilestones.some((m) => m.title === cleanTitle)) {
+        nextMilestones.push({
+          id: generateId(),
+          title: cleanTitle,
+          status: 'upcoming',
+          urgency: 'רגילה',
+          planned_days: 7,
+          started_at: today,
+          completed_at: null,
+          days_spent: 0,
+          updated_by: user.displayName,
+        });
+      }
+    } else if (
+      params.action === 'rename' &&
+      params.oldStageTitle &&
+      params.newStageTitle?.trim()
+    ) {
+      const cleanNew = params.newStageTitle.trim();
+      nextMilestones = nextMilestones.map((m) =>
+        m.title === params.oldStageTitle
+          ? { ...m, title: cleanNew, updated_by: user.displayName }
+          : m
+      );
+      if (nextCurrentStage === params.oldStageTitle) {
+        nextCurrentStage = cleanNew;
+      }
+    } else if (params.action === 'delete' && params.stageTitle) {
+      nextMilestones = nextMilestones.filter(
+        (m) => m.title !== params.stageTitle
+      );
+    } else if (
+      params.action === 'reorder' &&
+      params.stageTitle &&
+      params.direction
+    ) {
+      const idx = nextMilestones.findIndex(
+        (m) => m.title === params.stageTitle
+      );
+      if (idx !== -1) {
+        const swapIdx = params.direction === 'up' ? idx - 1 : idx + 1;
+        if (swapIdx >= 0 && swapIdx < nextMilestones.length) {
+          const temp = nextMilestones[idx];
+          nextMilestones[idx] = nextMilestones[swapIdx];
+          nextMilestones[swapIdx] = temp;
+        }
+      }
+    } else if (
+      params.action === 'set_active_stage' &&
+      params.stageTitle?.trim()
+    ) {
+      nextCurrentStage = params.stageTitle.trim();
+      if (params.stageNote !== undefined) {
+        nextStageNote = params.stageNote;
+      }
+    }
+
+    return {
+      ...c,
+      current_stage: nextCurrentStage,
+      stage_note: nextStageNote,
+      milestones: nextMilestones,
+      last_modified_by: user.displayName,
+      updated_at: now,
+    };
+  });
+
+  saveLocalCases(updatedCases);
+  return updatedCases;
+}
+
 
 
 

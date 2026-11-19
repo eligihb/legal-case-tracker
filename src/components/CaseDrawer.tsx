@@ -77,8 +77,10 @@ import {
   WriteoffClassification,
 } from '@/types/database';
 import {
+  StageBulkApplyScope,
   addCaseLog,
   bulkApplyDistrictToCases,
+  bulkApplyStageMutation,
   deleteCaseItem,
   deleteCaseLog,
   fetchCaseLogs,
@@ -127,6 +129,8 @@ interface CaseDrawerProps {
   onOpenMuniSettingsModal?: () => void;
   onOpenNewCaseModal?: () => void;
   onOpenSmartPasteModal?: () => void;
+  systemEditMode?: boolean;
+  selectedCaseIds?: string[];
 }
 
 export default function CaseDrawer({
@@ -142,8 +146,8 @@ export default function CaseDrawer({
   municipalitiesSettings,
   currentUser,
   onOpenMuniSettingsModal,
-  onOpenNewCaseModal,
-  onOpenSmartPasteModal,
+  systemEditMode = false,
+  selectedCaseIds = [],
 }: CaseDrawerProps) {
   const isAdmin = currentUser.role === 'admin';
   const [activeTab, setActiveTab] = useState<DrawerTab>('executive');
@@ -158,6 +162,13 @@ export default function CaseDrawer({
   const [newTaskDueDate, setNewTaskDueDate] = useState('');
   const [isEditMode, setIsEditMode] = useState<boolean>(true);
   const [manualSaveFlash, setManualSaveFlash] = useState<boolean>(false);
+  const [caseActionsMenuOpen, setCaseActionsMenuOpen] = useState<boolean>(false);
+  const [showFeeNotesExec, setShowFeeNotesExec] = useState<boolean>(false);
+  const [stageBulkScope, setStageBulkScope] =
+    useState<StageBulkApplyScope>('case');
+  const [newCustomStageName, setNewCustomStageName] = useState('');
+  const [renamingStageOld, setRenamingStageOld] = useState<string | null>(null);
+  const [renamingStageVal, setRenamingStageVal] = useState('');
 
   const [logs, setLogs] = useState<CaseLog[]>([]);
   const [loadingLogs, setLoadingLogs] = useState(false);
@@ -168,6 +179,8 @@ export default function CaseDrawer({
   // שדות ליבה של התיק
   const [debtorName, setDebtorName] = useState('');
   const [subject, setSubject] = useState('');
+  const [stageNote, setStageNote] = useState('');
+  const [feeNotes, setFeeNotes] = useState('');
   const [idOrHp, setIdOrHp] = useState('');
   const [caseNumber, setCaseNumber] = useState('');
   const [gushHelka, setGushHelka] = useState('');
@@ -325,6 +338,9 @@ export default function CaseDrawer({
 
     setDebtorName(caseItem.debtor_name);
     setSubject(caseItem.subject || '');
+    setStageNote(caseItem.stage_note ?? (caseItem.subject || ''));
+    setFeeNotes(caseItem.fee_notes ?? '');
+    setCaseActionsMenuOpen(false);
     setIdOrHp(caseItem.id_or_hp || '');
     setCaseNumber(caseItem.case_number || '');
     setGushHelka(caseItem.gush_helka || caseItem.property_details || '');
@@ -484,6 +500,8 @@ export default function CaseDrawer({
       const payload: Partial<Omit<CaseItem, 'id' | 'updated_at'>> = {
         debtor_name: debtorName.trim(),
         subject: subject.trim(),
+        stage_note: stageNote.trim(),
+        fee_notes: feeNotes.trim(),
         id_or_hp: idOrHp.trim(),
         case_number: caseNumber.trim(),
         gush_helka: gushHelka.trim(),
@@ -585,6 +603,8 @@ export default function CaseDrawer({
   }, [
     debtorName,
     subject,
+    stageNote,
+    feeNotes,
     idOrHp,
     caseNumber,
     gushHelka,
@@ -967,6 +987,60 @@ export default function CaseDrawer({
     setMilestones((prev) => prev.filter((m) => m.id !== msId));
   };
 
+  // מעבר שלב חי בתיק (Stage-Driven Context) עם רישום אוטומטי ביומן הכרונולוגי והחלה ב-4 רמות
+  const handleStageTransition = async (newStageName: string) => {
+    const clean = newStageName.trim();
+    if (!clean || clean === currentStage) return;
+    const prevStage = currentStage || 'פתיחת תיק';
+    setCurrentStage(clean);
+
+    const log = await addCaseLog({
+      case_id: caseItem.id,
+      log_type: 'פעולה שבוצעה',
+      content: `מעבר שלב בתיק: [${prevStage}] ➔ [${clean}]${
+        stageNote ? ` | הערת שלב: ${stageNote}` : ''
+      }`,
+      created_by: currentUser.displayName,
+    });
+    setLogs((prev) => [log, ...prev]);
+
+    if (systemEditMode && stageBulkScope !== 'case') {
+      const updatedList = await bulkApplyStageMutation({
+        action: 'set_active_stage',
+        scope: stageBulkScope,
+        targetCaseId: caseItem.id,
+        selectedCaseIds,
+        targetCategory: category,
+        stageTitle: clean,
+        stageNote,
+      });
+      if (onAllCasesUpdated) onAllCasesUpdated(updatedList);
+    }
+  };
+
+  const handleBulkStageMutationInDrawer = async (params: {
+    action: 'add' | 'rename' | 'delete' | 'reorder';
+    stageTitle?: string;
+    oldStageTitle?: string;
+    newStageTitle?: string;
+    direction?: 'up' | 'down';
+  }) => {
+    const updatedList = await bulkApplyStageMutation({
+      ...params,
+      scope: stageBulkScope,
+      targetCaseId: caseItem.id,
+      selectedCaseIds,
+      targetCategory: category,
+    });
+    if (onAllCasesUpdated) onAllCasesUpdated(updatedList);
+    const refreshed = updatedList.find((c) => c.id === caseItem.id);
+    if (refreshed) {
+      setMilestones(refreshed.milestones || []);
+      if (refreshed.current_stage) setCurrentStage(refreshed.current_stage);
+      onCaseUpdated(refreshed);
+    }
+  };
+
   // 7. יומן הפחתות חודשי
   const handleAddMonthlyReduction = async () => {
     if (!newRedMonth.trim() || Number(newRedAmount) <= 0) return;
@@ -1222,64 +1296,44 @@ export default function CaseDrawer({
           </button>
         </div>
 
-        {/* כותרת עליונה שקטה ונקייה עם כפתורי העתקה מהירה, ארכיון, הדפסה וייצוא לאקסל */}
-        <div className="px-3 sm:px-6 py-3 sm:py-4 bg-[#0F172A] text-white flex flex-wrap items-center justify-between gap-2 sm:gap-3 shrink-0">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2.5 flex-wrap">
-              <span className="px-3 py-1 text-xs font-extrabold rounded-full bg-white/15 text-white border border-white/25">
-                {CATEGORY_LABELS[category]?.title}
-              </span>
+        {/* פס זהות קומפקטי בשורה אחת בראש התיק: שם מלא (ללא חיתוך) + מספר תיק + קטגוריה + שלב פעיל, ובצד שמאל רק פעולות של התיק הנוכחי */}
+        <div className="px-3 sm:px-6 py-2.5 bg-[#0F172A] text-white flex flex-wrap items-center justify-between gap-2.5 shrink-0">
+          <div className="min-w-0 flex-1 flex items-center gap-2.5 flex-wrap">
+            <h2 className="text-base sm:text-xl font-extrabold text-white break-words">
+              {debtorName}
+            </h2>
+            <CopyButton value={debtorName} label="העתק שם" />
 
-              <div className="inline-flex items-center gap-1.5 bg-white/10 px-2.5 py-1 rounded-lg text-sm font-mono">
-                <span>תיק: {caseNumber || 'ללא מספר'}</span>
-                <CopyButton value={caseNumber} label="העתק מספר תיק" />
+            <span className="px-2.5 py-0.5 text-xs font-extrabold rounded-full bg-white/15 text-white border border-white/25">
+              {category}
+            </span>
+
+            <div className="inline-flex items-center gap-1 bg-white/10 px-2.5 py-0.5 rounded-lg text-xs font-mono font-bold">
+              <span>תיק: {caseNumber || 'ללא מספר'}</span>
+              {caseNumber && <CopyButton value={caseNumber} label="העתק מספר תיק" />}
+            </div>
+
+            {idOrHp && (
+              <div className="inline-flex items-center gap-1 bg-white/10 px-2.5 py-0.5 rounded-lg text-xs font-mono">
+                <span>ת&quot;ז/ח&quot;פ: {idOrHp}</span>
+                <CopyButton value={idOrHp} label="העתק ת״ז/ח״פ" />
               </div>
+            )}
 
-              {idOrHp && (
-                <div className="inline-flex items-center gap-1.5 bg-white/10 px-2.5 py-1 rounded-lg text-sm font-mono">
-                  <span>ת&quot;ז/ח&quot;פ: {idOrHp}</span>
-                  <CopyButton value={idOrHp} label="העתק ת״ז/ח״פ" />
-                </div>
-              )}
+            {/* תגית השלב הפעיל הנוכחי בראש התיק */}
+            <span className="px-3 py-0.5 text-xs font-extrabold rounded-full bg-sky-500/20 text-sky-200 border border-sky-400/40">
+              שלב פעיל: {currentStage || status}
+            </span>
 
-              {gushHelka && (
-                <div className="inline-flex items-center gap-1.5 bg-white/10 px-2.5 py-1 rounded-lg text-sm">
-                  <span>{gushHelka}</span>
-                  <CopyButton value={gushHelka} label="העתק גוש/חלקה" />
-                </div>
-              )}
-
-              {(isHearingPostponed || extensionsCount > 0) && (
-                <span className="px-3 py-1 text-xs font-extrabold rounded-full bg-rose-500 text-white shadow-xs">
-                  {isHearingPostponed ? 'דיון נדחה • ' : ''}
-                  מונה דחיות/ארכות: {extensionsCount}
-                </span>
-              )}
-
-              {countdown.urgency !== 'none' && (
-                <span
-                  className={`px-3 py-1 text-xs font-extrabold rounded-full ${
-                    countdown.urgency === 'overdue'
-                      ? 'bg-red-500 text-white'
-                      : countdown.urgency === 'today'
-                      ? 'bg-amber-400 text-slate-950'
-                      : 'bg-white/20 text-white'
-                  }`}
-                >
-                  יעד: {countdown.label}
-                </span>
-              )}
-            </div>
-
-            <div className="flex items-center gap-2 mt-2">
-              <h2 className="text-xl sm:text-2xl font-extrabold truncate">
-                {debtorName}
-              </h2>
-              <CopyButton value={debtorName} label="העתק שם חייב/תיק" />
-            </div>
+            {(isHearingPostponed || extensionsCount > 0) && (
+              <span className="px-2.5 py-0.5 text-xs font-extrabold rounded-full bg-rose-500 text-white">
+                נדחה ({extensionsCount})
+              </span>
+            )}
           </div>
 
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 flex-wrap no-print">
+          {/* צד שמאל: אך ורק פעולות של התיק הנוכחי (שמירה, הדפסה / PDF, ייצוא לאקסל, פעולות תיק ▾) */}
+          <div className="flex items-center gap-1.5 shrink-0 flex-wrap no-print">
             {/* 1. כפתור שמירה (Save) עם חיווי "נשמר ✓" */}
             <button
               type="button"
@@ -1288,21 +1342,21 @@ export default function CaseDrawer({
                 setManualSaveFlash(true);
                 setTimeout(() => setManualSaveFlash(false), 2200);
               }}
-              className={`px-3 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-1.5 border transition ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 border transition ${
                 manualSaveFlash
                   ? 'bg-emerald-500 text-slate-950 border-emerald-300 shadow-xs'
                   : 'bg-blue-600 hover:bg-blue-500 text-white border-blue-400/50 shadow-xs'
               }`}
-              title="שמירה מיידית של כל נתוני התיק"
+              title="שמירה מיידית של נתוני התיק"
             >
               {manualSaveFlash ? (
                 <>
-                  <Check className="w-4 h-4" />
+                  <Check className="w-3.5 h-3.5" />
                   <span>נשמר ✓</span>
                 </>
               ) : (
                 <>
-                  <Save className="w-4 h-4" />
+                  <Save className="w-3.5 h-3.5" />
                   <span>
                     {autoSaveStatus === 'saving' ? 'שומר...' : 'שמירה'}
                   </span>
@@ -1310,84 +1364,7 @@ export default function CaseDrawer({
               )}
             </button>
 
-            {/* 2. כפתור מצב עריכה / צפייה (Edit Mode Toggle) */}
-            <button
-              type="button"
-              onClick={() => setIsEditMode((prev) => !prev)}
-              className={`px-3 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-1.5 border transition ${
-                isEditMode
-                  ? 'bg-white/10 hover:bg-white/20 text-emerald-300 border-emerald-400/40'
-                  : 'bg-amber-500 text-slate-950 border-amber-300'
-              }`}
-              title="מעבר מהיר בין מצב עריכה פתוח למצב צפייה בלבד (נעול)"
-            >
-              {isEditMode ? (
-                <>
-                  <Unlock className="w-4 h-4" />
-                  <span>מצב עריכה</span>
-                </>
-              ) : (
-                <>
-                  <Lock className="w-4 h-4" />
-                  <span>מצב צפייה (נעול)</span>
-                </>
-              )}
-            </button>
-
-            {/* 3. כפתור + תיק חדש ו-קליטה חכמה (מייל / נט המשפט) */}
-            {onOpenNewCaseModal && (
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onOpenNewCaseModal();
-                }}
-                className="px-2.5 py-2 rounded-xl bg-emerald-600/90 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1 border border-emerald-400/40 transition"
-                title="פתח תיק חדש"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span className="hidden xl:inline">+ תיק חדש</span>
-              </button>
-            )}
-
-            {onOpenSmartPasteModal && (
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onOpenSmartPasteModal();
-                }}
-                className="px-2.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-extrabold flex items-center gap-1 border border-indigo-400/40 transition"
-                title="קליטה חכמה ממייל / נט המשפט"
-              >
-                <ClipboardPaste className="w-3.5 h-3.5" />
-                <span className="hidden xl:inline">קליטה חכמה</span>
-              </button>
-            )}
-
-            {onToggleArchive && (
-              <button
-                type="button"
-                onClick={() => onToggleArchive(caseItem)}
-                className={`px-3 py-2 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-1.5 border transition ${
-                  caseItem.is_archived
-                    ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 border-amber-300'
-                    : 'bg-white/10 hover:bg-white/20 text-white border-white/20'
-                }`}
-                title={
-                  caseItem.is_archived
-                    ? 'שחזר תיק מהארכיון לפעילים'
-                    : 'העבר תיק לארכיון (הושלם / ארכיון)'
-                }
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                <span className="hidden md:inline">
-                  {caseItem.is_archived ? 'שחזר מארכיון' : 'ארכיון'}
-                </span>
-              </button>
-            )}
-
-            {/* 4. בחירת אזור הדפסה ספציפי בתיק + כפתור הדפסה / PDF */}
+            {/* 2. הדפסה / PDF */}
             <div className="inline-flex items-center rounded-xl bg-white/15 border border-white/25 overflow-hidden">
               <select
                 value={selectedPrintZone}
@@ -1395,34 +1372,14 @@ export default function CaseDrawer({
                   setSelectedPrintZone(e.target.value as CasePrintZone)
                 }
                 aria-label="בחר אזור הדפסה בתיק"
-                className="px-2 py-2 bg-slate-900/80 text-white text-xs font-extrabold outline-none cursor-pointer border-l border-white/20"
+                className="px-2 py-1.5 bg-slate-900/80 text-white text-xs font-extrabold outline-none cursor-pointer border-l border-white/20"
               >
-                <option value="active_tab">
-                  🖨️ מסך נוכחי (
-                  {activeTab === 'executive'
-                    ? 'תמצית, משימות ויומן'
-                    : activeTab === 'overview'
-                    ? 'שדות תחום מורחבים'
-                    : activeTab === 'tasks'
-                    ? 'משימות וזמנים'
-                    : 'תרשומות וארכות'}
-                  )
-                </option>
-                <option value="summary">
-                  📋 תמצית תיק (נתונים עיקריים בלבד)
-                </option>
-                <option value="overview">
-                  🏛️ מסך כללי + כל שדות התחום
-                </option>
-                <option value="tasks">
-                  ✅ צ&apos;ק-ליסט משימות וזמנים בלבד
-                </option>
-                <option value="logs">
-                  💬 יומן תרשומות וארכות בלבד
-                </option>
-                <option value="full">
-                  📑 דוח תיק מלא (כל האזורים יחד)
-                </option>
+                <option value="active_tab">🖨️ מסך נוכחי</option>
+                <option value="summary">📋 תמצית תיק</option>
+                <option value="overview">🏛️ שדות התחום</option>
+                <option value="tasks">✅ משימות בלבד</option>
+                <option value="logs">💬 יומן בלבד</option>
+                <option value="full">📑 דוח תיק מלא</option>
               </select>
 
               <button
@@ -1432,6 +1389,8 @@ export default function CaseDrawer({
                     ...caseItem,
                     debtor_name: debtorName,
                     subject,
+                    stage_note: stageNote,
+                    fee_notes: feeNotes,
                     id_or_hp: idOrHp,
                     case_number: caseNumber,
                     gush_helka: gushHelka,
@@ -1517,15 +1476,15 @@ export default function CaseDrawer({
                     window.print();
                   }
                 }}
-                className="px-3 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs sm:text-sm font-extrabold flex items-center gap-1.5 transition"
+                className="px-2.5 py-1.5 bg-sky-600 hover:bg-sky-500 text-white text-xs font-extrabold flex items-center gap-1 transition"
                 title="הדפסה / PDF של האזור שנבחר בתיק"
               >
-                <Printer className="w-4 h-4" />
+                <Printer className="w-3.5 h-3.5" />
                 <span>הדפסה / PDF</span>
               </button>
             </div>
 
-            {/* 5. כפתור ייצוא לאקסל */}
+            {/* 3. ייצוא לאקסל */}
             <button
               type="button"
               onClick={() =>
@@ -1534,6 +1493,8 @@ export default function CaseDrawer({
                     ...caseItem,
                     debtor_name: debtorName,
                     subject,
+                    stage_note: stageNote,
+                    fee_notes: feeNotes,
                     id_or_hp: idOrHp,
                     case_number: caseNumber,
                     gush_helka: gushHelka,
@@ -1610,17 +1571,86 @@ export default function CaseDrawer({
                   logs
                 )
               }
-              className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-extrabold flex items-center gap-1.5 shadow-xs transition"
+              className="px-2.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1 shadow-xs transition"
               title="ייצא את התיק הנוכחי לקובץ אקסל (.xlsx)"
             >
-              <FileSpreadsheet className="w-4 h-4" />
+              <FileSpreadsheet className="w-3.5 h-3.5" />
               <span>ייצוא לאקסל</span>
             </button>
+
+            {/* 4. תפריט "פעולות תיק ▾" (עבור ארכיון, נעילת עריכה ומחיקה) */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setCaseActionsMenuOpen((v) => !v)}
+                className="px-2.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-extrabold border border-white/20 flex items-center gap-1 transition"
+              >
+                <span>פעולות תיק</span>
+                <ChevronDown className="w-3.5 h-3.5" />
+              </button>
+
+              {caseActionsMenuOpen && (
+                <div className="absolute left-0 top-full mt-1.5 w-48 bg-white text-slate-900 rounded-xl shadow-2xl border border-slate-200 py-1 z-50 text-xs font-extrabold">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsEditMode((prev) => !prev);
+                      setCaseActionsMenuOpen(false);
+                    }}
+                    className="w-full px-3 py-2 text-right hover:bg-slate-100 flex items-center gap-2"
+                  >
+                    {isEditMode ? (
+                      <>
+                        <Lock className="w-3.5 h-3.5 text-amber-600" />
+                        <span>נעל תיק לצפייה בלבד</span>
+                      </>
+                    ) : (
+                      <>
+                        <Unlock className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>פתח תיק לעריכה</span>
+                      </>
+                    )}
+                  </button>
+
+                  {onToggleArchive && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCaseActionsMenuOpen(false);
+                        onToggleArchive(caseItem);
+                      }}
+                      className="w-full px-3 py-2 text-right hover:bg-slate-100 flex items-center gap-2 text-amber-900"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 text-amber-600" />
+                      <span>
+                        {caseItem.is_archived
+                          ? 'שחזר תיק מהארכיון'
+                          : 'העבר תיק לארכיון'}
+                      </span>
+                    </button>
+                  )}
+
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCaseActionsMenuOpen(false);
+                        handleDeleteEntireCase();
+                      }}
+                      className="w-full px-3 py-2 text-right hover:bg-red-50 text-red-600 flex items-center gap-2 border-t border-slate-100"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>מחק תיק לצמיתות</span>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
 
             <button
               type="button"
               onClick={onClose}
-              className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition"
+              className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white transition"
               title="סגור חלון (Esc)"
             >
               <X className="w-5 h-5" />
@@ -1742,43 +1772,233 @@ export default function CaseDrawer({
           {activeTab === 'executive' && (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 h-full lg:min-h-[68dvh]">
               {/* ============================================================ */}
-              {/* חלק 1 (ימין): תמצית התיק (Case Executive Summary)            */}
+              {/* חלק 1 (ימין): מצב שלב ותמצית מנהלים (Stage-Driven Context)   */}
               {/* ============================================================ */}
               <div className="lg:col-span-4 bg-white rounded-2xl border border-slate-200 shadow-2xs p-4 flex flex-col justify-between space-y-3">
                 <div className="space-y-3">
                   <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
                     <h3 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
-                      <FileText className="w-5 h-5 text-blue-600" />
-                      <span>1. תמצית התיק</span>
+                      <Milestone className="w-5 h-5 text-blue-600" />
+                      <span>1. מצב שלב ותמצית מנהלים</span>
                     </h3>
                     <span className="px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-blue-50 text-blue-900 border border-blue-200">
                       {progressPercent}% הושלם ({doneCount}/{milestones.length})
                     </span>
                   </div>
 
-                  {/* תיבת תמצית בולטת ב-3-4 שורות */}
-                  <div className="p-3 rounded-xl bg-blue-50/50 border-2 border-blue-200 space-y-2">
+                  {/* השלב הפעיל הנוכחי כתגית מרכזית + בחירת שלב ורישום אוטומטי ביומן + הערת שלב דינמית */}
+                  <div className="p-3 rounded-xl bg-blue-50/60 border-2 border-blue-200 space-y-2.5">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <span className="text-xs font-extrabold text-blue-950">
+                        השלב הפעיל הנוכחי בתיק:
+                      </span>
+                      <span className="px-2.5 py-0.5 rounded-full bg-blue-700 text-white text-xs font-extrabold shadow-2xs">
+                        {currentStage || status}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <select
+                        value={currentStage}
+                        onChange={(e) => handleStageTransition(e.target.value)}
+                        className="flex-1 p-2 text-xs rounded-lg border border-blue-300 bg-white font-extrabold text-slate-900 outline-none focus:border-blue-600"
+                        title="בחירת שלב מתעדת אוטומטית את מעבר השלב ביומן הכרונולוגי"
+                      >
+                        {currentStage &&
+                          !milestones.some((m) => m.title === currentStage) && (
+                            <option value={currentStage}>{currentStage}</option>
+                          )}
+                        {milestones.map((m) => (
+                          <option key={m.id} value={m.title}>
+                            {m.title}
+                          </option>
+                        ))}
+                        {CASE_STATUSES.map((st) => (
+                          <option key={`st_${st}`} value={st}>
+                            שלב: {st}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
                     <div>
-                      <label className="block text-xs font-extrabold text-blue-950 mb-1">
-                        נושא התיק / מהות העניין
+                      <label className="block text-[11px] font-extrabold text-blue-950 mb-1">
+                        הערת שלב דינמית (קצרה וממוקדת לשלב הפעיל)
                       </label>
                       <input
                         type="text"
-                        value={subject}
-                        onChange={(e) => setSubject(e.target.value)}
-                        placeholder="נושא מרכזי של התיק..."
-                        className="w-full p-2 text-xs rounded-lg border border-blue-200 bg-white font-extrabold text-slate-900 outline-none focus:border-blue-600"
+                        value={stageNote}
+                        onChange={(e) => setStageNote(e.target.value)}
+                        placeholder="הקלד הערת שלב קצרה..."
+                        className="w-full p-2 text-xs rounded-lg border border-blue-200 bg-white font-bold text-slate-900 outline-none focus:border-blue-600"
                       />
                     </div>
+
+                    {/* מצב עריכת מערכת חי בהקשר (Live Admin Edit Mode) — מופיע רק כשמתג עריכת מערכת פעיל! */}
+                    {systemEditMode && (
+                      <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-300 space-y-2 text-xs">
+                        <div className="flex items-center justify-between gap-1 flex-wrap">
+                          <span className="font-extrabold text-amber-950">
+                            ✏️ עריכת שלבים חיה (החלה ב-4 רמות):
+                          </span>
+                          <select
+                            value={stageBulkScope}
+                            onChange={(e) =>
+                              setStageBulkScope(
+                                e.target.value as StageBulkApplyScope
+                              )
+                            }
+                            className="p-1 rounded border border-amber-400 bg-white font-extrabold text-amber-950 text-[11px]"
+                          >
+                            <option value="case">1. תיק זה בלבד</option>
+                            <option value="selected">
+                              2. תיקים מסומנים ({selectedCaseIds.length || 1})
+                            </option>
+                            <option value="category">
+                              3. כל קטגוריית {category}
+                            </option>
+                            <option value="all">4. כלל התיקים במערכת</option>
+                          </select>
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="text"
+                            value={newCustomStageName}
+                            onChange={(e) =>
+                              setNewCustomStageName(e.target.value)
+                            }
+                            placeholder="שם שלב חדש להוספה..."
+                            className="flex-1 p-1.5 rounded border border-amber-300 bg-white text-xs font-bold"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!newCustomStageName.trim()) return;
+                              handleBulkStageMutationInDrawer({
+                                action: 'add',
+                                stageTitle: newCustomStageName.trim(),
+                              });
+                              setNewCustomStageName('');
+                            }}
+                            className="px-2.5 py-1.5 rounded bg-amber-600 hover:bg-amber-500 text-white font-extrabold"
+                          >
+                            + הוסף שלב
+                          </button>
+                        </div>
+
+                        <div className="space-y-1 max-h-28 overflow-y-auto pr-0.5">
+                          {milestones.map((m, idx) => (
+                            <div
+                              key={m.id}
+                              className="flex items-center justify-between gap-1 bg-white p-1.5 rounded border border-amber-200"
+                            >
+                              {renamingStageOld === m.title ? (
+                                <div className="flex items-center gap-1 flex-1">
+                                  <input
+                                    type="text"
+                                    value={renamingStageVal}
+                                    onChange={(e) =>
+                                      setRenamingStageVal(e.target.value)
+                                    }
+                                    className="flex-1 p-1 text-xs rounded border border-blue-400 font-bold"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      handleBulkStageMutationInDrawer({
+                                        action: 'rename',
+                                        oldStageTitle: m.title,
+                                        newStageTitle: renamingStageVal,
+                                      });
+                                      setRenamingStageOld(null);
+                                    }}
+                                    className="px-2 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-extrabold"
+                                  >
+                                    שמור
+                                  </button>
+                                </div>
+                              ) : (
+                                <span
+                                  onClick={() => handleStageTransition(m.title)}
+                                  className="truncate font-bold text-slate-800 cursor-pointer hover:text-blue-700 flex-1"
+                                  title="לחץ לקביעה כשלב פעיל"
+                                >
+                                  {idx + 1}. {m.title}
+                                </span>
+                              )}
+
+                              <div className="flex items-center gap-0.5 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setRenamingStageOld(m.title);
+                                    setRenamingStageVal(m.title);
+                                  }}
+                                  title="ערוך שם שלב (✏️)"
+                                  className="p-1 rounded hover:bg-slate-100 text-slate-600"
+                                >
+                                  ✏️
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={idx === 0}
+                                  onClick={() =>
+                                    handleBulkStageMutationInDrawer({
+                                      action: 'reorder',
+                                      stageTitle: m.title,
+                                      direction: 'up',
+                                    })
+                                  }
+                                  title="הזז שלב למעלה (↑)"
+                                  className="p-1 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30"
+                                >
+                                  ↑
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={idx === milestones.length - 1}
+                                  onClick={() =>
+                                    handleBulkStageMutationInDrawer({
+                                      action: 'reorder',
+                                      stageTitle: m.title,
+                                      direction: 'down',
+                                    })
+                                  }
+                                  title="הזז שלב למטה (↓)"
+                                  className="p-1 rounded hover:bg-slate-100 text-slate-600 disabled:opacity-30"
+                                >
+                                  ↓
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleBulkStageMutationInDrawer({
+                                      action: 'delete',
+                                      stageTitle: m.title,
+                                    })
+                                  }
+                                  title="מחק שלב (🗑️)"
+                                  className="p-1 rounded hover:bg-red-50 text-red-600"
+                                >
+                                  🗑️
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     <div>
-                      <label className="block text-xs font-extrabold text-blue-950 mb-1">
-                        תקציר מנהלים (3-4 שורות על מהות התיק והמצב הנוכחי)
+                      <label className="block text-[11px] font-extrabold text-blue-950 mb-1">
+                        תמצית מנהלים (3–4 שורות על המצב הנוכחי בתיק)
                       </label>
                       <textarea
-                        rows={3}
+                        rows={2}
                         value={notes}
                         onChange={(e) => setNotes(e.target.value)}
-                        placeholder="סכם ב-3–4 שורות את מהות התיק, הסטטוס הנוכחי והצעד הבא..."
+                        placeholder="סכם בקצרה את תמונת המצב הנוכחית והצעד הבא..."
                         className="w-full p-2 text-xs rounded-lg border border-blue-200 bg-white font-medium text-slate-900 outline-none focus:border-blue-600 leading-relaxed"
                       />
                     </div>
@@ -1828,7 +2048,7 @@ export default function CaseDrawer({
                   </div>
 
                   {/* הדיון הקרוב והצעד הבא */}
-                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className="block text-[11px] font-extrabold text-slate-700 mb-1">
@@ -1899,32 +2119,31 @@ export default function CaseDrawer({
                     </div>
                   </div>
 
-                  {/* פרטי זיהוי מהירים (ניתנים להשלמה בכל עת) */}
-                  <div className="grid grid-cols-2 gap-2 pt-1">
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-600 mb-0.5">
-                        מספר תיק (ביהמ&quot;ש / הוצל&quot;פ)
-                      </label>
-                      <input
-                        type="text"
-                        value={caseNumber}
-                        onChange={(e) => setCaseNumber(e.target.value)}
-                        placeholder="ניתן להשלים כאן..."
-                        className="w-full p-1.5 text-xs rounded-lg border border-slate-300 font-mono font-bold"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-600 mb-0.5">
-                        ת&quot;ז / ח&quot;פ
-                      </label>
-                      <input
-                        type="text"
-                        value={idOrHp}
-                        onChange={(e) => setIdOrHp(e.target.value)}
-                        placeholder="ת״ז / ח״פ..."
-                        className="w-full p-1.5 text-xs rounded-lg border border-slate-300 font-mono font-bold"
-                      />
-                    </div>
+                  {/* שורה מתקפלת לעיון בהערות כספיות / שכ"ט (ללא חישובים) */}
+                  <div className="border border-slate-200 rounded-xl overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setShowFeeNotesExec((v) => !v)}
+                      className="w-full px-3 py-2 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-extrabold flex items-center justify-between transition"
+                    >
+                      <span>הערות כספיות / שכר טרחה (לעיון)</span>
+                      {showFeeNotesExec ? (
+                        <ChevronUp className="w-3.5 h-3.5" />
+                      ) : (
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                    {showFeeNotesExec && (
+                      <div className="p-2.5 bg-white border-t border-slate-200 space-y-1.5">
+                        <textarea
+                          rows={2}
+                          value={feeNotes}
+                          onChange={(e) => setFeeNotes(e.target.value)}
+                          placeholder="הערות שכר טרחה, הסכם שכ״ט או תנאי תשלום לעיון..."
+                          className="w-full p-2 text-xs rounded-lg border border-slate-300 bg-slate-50/40 outline-none focus:border-blue-600"
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
 

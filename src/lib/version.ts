@@ -1,3 +1,3 @@
-export const APP_VERSION = '8.1';
-export const APP_VERSION_NAME = 'Smart Paste Relative Dates & Persistent Top Action Toolbar';
-export const APP_UPDATED_AT = '18/11/2026 19:02';
+export const APP_VERSION = '8.4';
+export const APP_VERSION_NAME = 'Smart Legal Command Center';
+export const APP_UPDATED_AT = '19/11/2026 07:25';

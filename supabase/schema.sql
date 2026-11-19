@@ -76,6 +76,8 @@ CREATE TABLE IF NOT EXISTS public.cases (
             'דיון',
             'דיון שנדחה',
             'הגשה לביהמ"ש',
+            'משימת מעקב',
+            'תזכורת',
             'משימת מעקב / תזכורת',
             'דו"ח עדכון נאמן',
             'בקשה ממתינה',
@@ -232,6 +234,8 @@ ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS legal_fee_paid BOOLEAN NOT NUL
 ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS legal_fee_paid_amount NUMERIC(12, 2) NOT NULL DEFAULT 0;
 ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS prep_days_needed INTEGER NOT NULL DEFAULT 7;
 ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS subject TEXT DEFAULT '';
+ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS stage_note TEXT DEFAULT '';
+ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS fee_notes TEXT DEFAULT '';
 ALTER TABLE public.cases ADD COLUMN IF NOT EXISTS net_hamishpat_status TEXT NOT NULL DEFAULT 'ללא מעקב פעיל';
 
 -- 2ב. טבלת תבניות שדות מעקב ותזכורות מותאמים אישית בהחלה גורפת (custom_field_templates)
